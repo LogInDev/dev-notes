@@ -723,6 +723,9 @@ dist
 ### Obsidian ###
 # config dir
 .obsidian/
+.makemd/*
+.makemd/superstate.mdc
+.space/*
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
@@ -1078,3 +1081,4 @@ $RECYCLE.BIN/
 # .pnp.*
 
 # End of https://www.toptal.com/developers/gitignore/api/windows,macos,visualstudiocode,intellij,java,node,python,obsidian,yarn,react,reactnative,jupyternotebooks,django,flask,intellij+all,eclipse,microsoftoffice,xcode
+
