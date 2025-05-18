@@ -33,3 +33,15 @@
 - 주문 목록 전체 지우기
 - 주문 목록 총 금액 계산하기
 - 주문 생성하기
+
+# 자동화 테스트
+## 단위 테스트(Unit Test)
+> **작은** 코드 단위를 **독립적**으로 검증하는 테스트
+- 작은 코드 단위 : 클래스 or 메소드
+- 독립적 : 네트워크 등 외부 상황에 의존하지 않는 것 
+→ 검증 속도가 빠르고, 안정적이다.
+
+### [JUnit 5](https://junit.org/junit5/docs/current/user-guide/)
+- 단위 테스트를 위한 테스트 프레임워크
+- XUnit - Kent Beck
+  - SUnit(Smalltalk), JUnit(Java), NUnit(.Net)...
