@@ -79,7 +79,7 @@ A객체로 B객체의 생성주기를 관리한다고 했을 때 A와 B가 너�
 
 <img src="./img/section6/entity.png" width="70%">
 
-> # 요구사항
+> # 추가 요구사항
 > - 키오스크 주문을 위한 상품 후보 리스트 조회하기
 > - 상품의 판매 상태 : 판매중, 판매보류, 판매중지<br />
 > → 판매중, 판매보류인 상태의 상품을 화면에 보여준다.
@@ -98,9 +98,48 @@ A객체로 B객체의 생성주기를 관리한다고 했을 때 A와 B가 너�
 ### 테스트 관련 어노테이션
 
 - `@SpringBootTest`(선호) : Spring에서 제공하는 통합테스트를 위한 어노테이션
-- `@DataJpaTest` : `@SpringBootTest` 보다 가볍고, Jpa와 관련된 bean들만 주입해서 실행함.
+- `@DataJpaTest` : `@SpringBootTest` 보다 가볍고, Jpa와 관련된 bean들만 주입해서 실행함.<br />
+안에 `@Transactional`이 있어서 자동으로 Rollback이 되므로 수동으로 만든 객체를 없애지 않아도 다른 테스트에 영향을 주지 않는다.
 
 ### assertJ
 - `.containsExactly()` : 출력되는 순서까지도 일치하는지 체크
 - `.containExactlyInAnyOrder()` : 순서 상관없이 일치하는지 체크
 
+### Persistence Layer
+- Data Access의 역할
+- 비즈니스 가공 로직이 포함되어서는 안 된다. Data에 대한 CRUD에만 집중한 레이어
+
+### Business Layer
+- 비즈니스 로직을 구현하는 역할
+- Persistence Layer와의 상호작용(Data를 읽고 쓰는 행위)을 통해 비즈니스 로직을 전개시킨다.
+- 트랜잭션을 보장해야 한다.
+
+### Repository Test
+<img src="img/section6/repository_test.png" width="70%">
+
+Spring 서버를 띄워서 테스트를 함으로 통합테스트이긴 하지만, 해당 레이어만 테스트하므로 단위 테스트의 성격이 강하다.
+
+
+### Service Test
+<img src="img/section6/service_test.png" width="70%">
+Business Layer와 FPersistence Layer를 통합해서 테스트 진행.
+
+># 추가 요구사항
+> - 상품 번호 리스트를 받아 주문 생성하기
+> - 주문은 주문 상태, 주문 등록 시간을 가진다.
+> - 주문의 총 금액을 계산할 수 있어야 한다.
+> - 주문 생성 시 재고 확인 및 개수 차감 후 생성하기
+> - 재고는 상품번호를 가진다.
+> - 재고와 관련 있는 상품 타입은 병 음료, 베이커리이다.
+
+#### 문제) OrderServiceTest에서 `@Transactional`
+- `OrderServiceTest`에서 `@Transactional`을 지운 상태에서 `createOrderWithStock()`를 테스트 해보니, ERROR!<br />
+→ `OrcerService`에 `@Transactional`을 적용하니 ERROR가 안남.
+- 테스트 실행시 쿼리 나가는걸 보니 원래 `OrderServiceTest`에 `@Transactional`을 적용하면 update 쿼리가 나가는데 안나감. 근데 `@Transactional`을 적용하니 날라감. 
+- 테스트에 `@Transactional`을 적용하면 자동으로 rollback도 되어 만들어진 객체들도 자동으로 클리어 되서 편하지만, 실제 Service에 `@Transactional`이 적용되지 않아도 통과되는 상황이 발생하여 테스틑 통과하였지만, 실제 배포된 환경에서는 에러가 발생할 수 있다.(검증이 제대로 이루어지지 않게 됨)
+- 테스트에 `@Transactional`을 아예 쓰지 말자 보다는 이런 문제점이 있다는 걸 팀원 모두가 인지하고 사용하는 걸 권장한다. 
+
+> ✅ `update`쿼리가 안나간 건 `@Transactional`이 적용되지 않아서라는 건 알겠다. <br />
+> 근데 왜 `insert` 쿼리는 작동된건 지??
+> 
+> `JpaRepository`에 기본 구현체(`CrudRepository` - `saveAll()`, `save()`, `delete()` 등)를 따라가보면 해당 메소드에 `@Transactional`이 설정이 다 되어있다.
