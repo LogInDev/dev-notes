@@ -3,7 +3,7 @@ package sample.cafekiosk.spring.api.service.order;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import sample.cafekiosk.spring.api.controller.order.request.OrderCreateRequest;
+import sample.cafekiosk.spring.api.service.order.request.OrderCreateServiceRequest;
 import sample.cafekiosk.spring.api.service.order.response.OrderResponse;
 import sample.cafekiosk.spring.domain.order.Order;
 import sample.cafekiosk.spring.domain.order.OrderRepository;
@@ -19,7 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static sample.cafekiosk.spring.domain.product.ProductSellingStatus.SELLING;
 
 @Transactional
 @RequiredArgsConstructor
@@ -34,7 +33,7 @@ public class OrderService {
      * 재고 감소 -> 동시성 고민
      * optimistic lock / pessimistic lock / ...
      */
-    public OrderResponse  createOrder(OrderCreateRequest request, LocalDateTime registeredDateTime) {
+    public OrderResponse  createOrder(OrderCreateServiceRequest request, LocalDateTime registeredDateTime) {
         List<String> productNumbers = request.getProductNumbers();
         final List<Product> products = findProductsBy(productNumbers);
 
