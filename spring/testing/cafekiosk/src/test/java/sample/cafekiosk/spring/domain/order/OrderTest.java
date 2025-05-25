@@ -10,6 +10,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
+import static sample.cafekiosk.spring.domain.order.OrderStatus.INIT;
 import static sample.cafekiosk.spring.domain.product.ProductSellingStatus.SELLING;
 
 class OrderTest {
@@ -24,7 +25,7 @@ class OrderTest {
         );
 
         // when
-        final Order order = Order.create(products, LocalDateTime.now());
+        final Order order = Order.create(products, LocalDateTime.now(), INIT);
 
         // then
         assertThat(order.getTotalPrice()).isEqualTo(3000);
@@ -40,10 +41,10 @@ class OrderTest {
         );
 
         // when
-        final Order order = Order.create(products, LocalDateTime.now());
+        final Order order = Order.create(products, LocalDateTime.now(), INIT);
 
         // then
-        assertThat(order.getOrderStatus()).isEqualByComparingTo(OrderStatus.INIT);
+        assertThat(order.getOrderStatus()).isEqualByComparingTo(INIT);
     }
 
     @DisplayName("주문 생성 시 주문 등록 시간을 기록한다.")
@@ -57,7 +58,7 @@ class OrderTest {
         );
 
         // when
-        final Order order = Order.create(products, registeredDateTime);
+        final Order order = Order.create(products, registeredDateTime, INIT);
 
         // then
         assertThat(order.getRegisteredDateTime()).isEqualTo(registeredDateTime);

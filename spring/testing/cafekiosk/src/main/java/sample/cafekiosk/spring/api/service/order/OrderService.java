@@ -7,6 +7,7 @@ import sample.cafekiosk.spring.api.service.order.request.OrderCreateServiceReque
 import sample.cafekiosk.spring.api.service.order.response.OrderResponse;
 import sample.cafekiosk.spring.domain.order.Order;
 import sample.cafekiosk.spring.domain.order.OrderRepository;
+import sample.cafekiosk.spring.domain.order.OrderStatus;
 import sample.cafekiosk.spring.domain.product.Product;
 import sample.cafekiosk.spring.domain.product.ProductRepository;
 import sample.cafekiosk.spring.domain.product.ProductType;
@@ -18,6 +19,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
+import static sample.cafekiosk.spring.domain.order.OrderStatus.INIT;
 
 
 @Transactional
@@ -39,7 +42,7 @@ public class OrderService {
 
         deductStockQuantities(products);
 
-        Order order = Order.create(products, registeredDateTime);
+        Order order = Order.create(products, registeredDateTime, INIT);
         final Order savedOrder = orderRepository.save(order);
         return OrderResponse.of(savedOrder);
     }

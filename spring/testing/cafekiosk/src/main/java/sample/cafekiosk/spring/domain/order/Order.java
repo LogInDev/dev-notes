@@ -33,8 +33,8 @@ public class Order extends BaseEntity {
     @OneToMany(mappedBy = "order", cascade=CascadeType.ALL)
     private List<OrderProduct> orderProducts = new ArrayList<>();
 
-    public Order(List<Product> products, LocalDateTime registeredDateTime) {
-        this.orderStatus = OrderStatus.INIT;
+    public Order(List<Product> products, LocalDateTime registeredDateTime, OrderStatus orderStatus) {
+        this.orderStatus = orderStatus;
         this.totalPrice = calculateTotalPrice(products);
         this.registeredDateTime = registeredDateTime;
         this.orderProducts = products.stream()
@@ -42,8 +42,8 @@ public class Order extends BaseEntity {
                 .collect(Collectors.toList());
     }
 
-    public static Order create(List<Product> products, LocalDateTime registeredDateTime) {
-        return new Order(products, registeredDateTime);
+    public static Order create(List<Product> products, LocalDateTime registeredDateTime, OrderStatus orderStatus    ) {
+        return new Order(products, registeredDateTime, orderStatus);
     }
 
     private int calculateTotalPrice(List<Product> products) {
