@@ -10,19 +10,20 @@ public class P120812 {
     }
     static int solution(int[] array){
         Map<Integer, Integer> map = new HashMap<>();
+        int answer = 0;
+        int maxFreq = 0;
+
         for (int num : array) {
             map.put(num, map.getOrDefault(num, 0) + 1);
-        }
 
-        int maxFreq = Collections.max(map.values());
-
-        List<Integer> mode = new ArrayList<>();
-        for (Map.Entry<Integer, Integer> entry : map.entrySet()) {
-            if (entry.getValue() == maxFreq) {
-                mode.add(entry.getKey());
+            if(maxFreq < map.get(num)){
+                maxFreq = map.get(num);
+                answer = num;
+            }else if(maxFreq == map.get(num)){
+                answer = -1;
             }
         }
 
-        return mode.size()>1 ?-1:mode.get(0);
+        return answer;
     }
 }
