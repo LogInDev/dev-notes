@@ -36,6 +36,13 @@
       <version>4.5.1</version>
     </dependency>
 
+    <!-- Vert.x REST API -->
+    <dependency>
+      <groupId>io.vertx</groupId>
+      <artifactId>vertx-web</artifactId>
+      <version>4.5.1</version>
+    </dependency>
+
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-resolver-dns-native-macos</artifactId>
