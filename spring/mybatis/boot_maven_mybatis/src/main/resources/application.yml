@@ -1,0 +1,8 @@
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/mybatis_demo
+    username: root
+    password:
+mybatis:
+  mapper-locations: classpath:mapper/**/*.xml
+  type-aliases-package: example.boot_maven_mybatis
