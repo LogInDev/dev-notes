@@ -94,6 +94,20 @@
       <version>1.7.36</version>
     </dependency>
 
+    <!-- Logback (실제 로그 출력 구현체) -->
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <version>1.2.11</version>
+    </dependency>
+
+    <!-- p6spy (SQL 로그를 예쁘게 보기 위한 프록시 드라이버) -->
+    <dependency>
+      <groupId>p6spy</groupId>
+      <artifactId>p6spy</artifactId>
+      <version>3.9.1</version>
+    </dependency>
+
     <!-- 테스트용 -->
     <dependency>
       <groupId>junit</groupId>
