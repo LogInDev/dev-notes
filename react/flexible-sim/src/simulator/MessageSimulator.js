@@ -1,5 +1,5 @@
 import React, { Component } from 'react';
-import FlexMessagePanel from '../components/FlexMessagePanel';
+import FlexMessagePanel from '../components/ex_v/FlexMessagePanel';
 import requestSample from '../requestSample';
 
 class MessageSimulator extends Component {
