@@ -22,7 +22,7 @@ class FlexibleRenderer extends Component {
         const Comp = COMPONENT_MAP[node.type];
         if (!Comp) return null;
         return (
-            <Comp key={key} {...node} renderElement={this.renderElement} />
+            <Comp key={key} {...node} renderElement={this.renderElement} />    //  TODO : 그냥 node로 안 보내고, ...node인 이유는? 키-값으로 안보냈는....
         );
     };
 
