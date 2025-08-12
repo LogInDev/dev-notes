@@ -1,0 +1,109 @@
+:root {
+    --strip-bg:#f6f8fa;     /* 탭스트립 배경 */
+    --border:#d0d7de;       /* 보더색 */
+    --active-bg:#fff;       /* 선택 탭/패널 배경 */
+    --inactive-bg:#eceff3;  /* 비활성 탭 배경 */
+    --active-text:#1e5bd7;
+}
+
+/* 탭 스트립(헤더) 영역 */
+.tabs-bar {
+    /*display: flex;*/
+    /*align-items: flex-end;       !* 둥근 상단 모서리가 예쁘게 *!*/
+    /*gap: 2px;*/
+    /*!*padding: 8px 8px 0;*!*/
+    /*padding: 0 8px;*/
+    /*background: var(--tab-bg, #f6f8fa);*/
+    /*border-bottom: 1px solid var(--tab-border, #d0d7de);*/
+    position: relative;
+    display:flex;
+    align-items:flex-end;
+    gap:6px;
+    padding:6px 8px 0;
+    background:var(--strip-bg);
+    border-bottom:1px solid var(--border);
+}
+
+/* 버튼 기본 */
+.tab-btn {
+    /*position: relative;*/
+    /*appearance: none;*/
+    /*border: 1px solid var(--tab-border, #d0d7de);*/
+    /*border-bottom: none;                 !* 아래쪽은 스트립 보더와 맞물리게 *!*/
+    /*background: #eef2f6;                 !* 비활성 배경 *!*/
+    /*color: #111;*/
+    /*padding: 6px 16px;*/
+    /*cursor: pointer;*/
+    /*font-size: 14px;*/
+    /*line-height: 1;*/
+    /*border-top-left-radius: 12px;*/
+    /*border-top-right-radius: 12px;*/
+    /*border-bottom-left-radius: 12px;*/
+    /*border-bottom-right-radius: 12px;*/
+    /*transition: background 0.2s, color 0.2s;*/
+    position:relative;
+    appearance:none;
+    border:1px solid var(--border);
+    border-bottom:none;              /* 스트립 보더와 접착 */
+    background:var(--inactive-bg);
+    color:#111;
+    padding:8px 14px;
+    font-size:14px;
+    cursor:pointer;
+    border-top-left-radius:12px;
+    border-top-right-radius:12px;
+    /* 하단 라운드 없음(필 모양 방지) */
+    border-bottom-left-radius:0;
+    border-bottom-right-radius:0;
+}
+
+.tab-btn:hover {
+    background: #e4e9ee;
+}
+
+.tab-btn:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(30, 111, 255, .25);
+}
+
+/* 활성 탭: 패널과 하나처럼 보이기 */
+.tab-btn.active {
+    /*background: var(--tab-active-bg);*/
+    /*z-index: 2;                          !* 패널 위에 살짝 올라오게 *!*/
+    /*transform: translateY(0);            !* 위로 딱 붙이기 *!*/
+    /*border-color: var(--tab-border);*/
+    /*border-bottom: 1px solid transparent;!* 핵심: 아래 보더 투명 *!*/
+    /*color: #0b5ed7;*/
+    /*font-weight: 600;*/
+    background:var(--active-bg);
+    color:var(--active-text);
+    font-weight:600;
+    z-index:2;
+    border:1px solid var(--border);
+    border-bottom:none;              /* 패널과 한 장처럼 */
+    border-top-left-radius:12px;
+    border-top-right-radius:12px;
+    /* 하단 라운드 직접 주지 않음 - 아래 pseudo가 어깨 곡선 만듦 */
+}
+/* === 핵심: 좌/우 어깨 곡선 만들어 탭스트립 보더를 가린다 === */
+.tab-btn.active::before,
+.tab-btn.active::after{
+    content:"";
+    position:absolute;
+    bottom:-1px;                     /* 스트립 보더 살짝 덮기 */
+    width:12px; height:12px;
+    background:var(--active-bg);     /* 패널/활성 탭 배경과 동일 */
+    z-index:-1;                      /* 탭 아래에 깔아서 자연스럽게 */
+}
+/* 왼쪽 어깨 */
+.tab-btn.active::before{
+    left:-12px;
+    border-bottom-right-radius:12px; /* 바깥으로 부드럽게 */
+    box-shadow: 1px 0 0 0 var(--border); /* 보더 이어짐 */
+}
+/* 오른쪽 어깨 */
+.tab-btn.active::after{
+    right:-12px;
+    border-bottom-left-radius:12px;
+    box-shadow: -1px 0 0 0 var(--border);
+}

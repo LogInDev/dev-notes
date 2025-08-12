@@ -1,0 +1,75 @@
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+.app { display: flex; flex-direction: column; height: 100%; }
+
+/* 헤더 전체(탭 + 검색) 정렬 수정: 탭이 왼쪽, 검색이 오른쪽 */
+.header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;                   /* 탭 스트립이 padding 가짐 */
+    background: var(--tab-bg);
+    border-bottom: none;          /* 스트립 내부에서 처리 */
+}
+.header .left { flex: 1 1 auto; }
+.header .right {
+    flex: 0 0 auto;
+    padding-right: 8px;
+}
+
+.tabs-bar { display: flex; gap: 4px; }
+.tab-btn {
+    padding: 6px 12px; border: 1px solid #ddd; background: #fafafa; cursor: pointer;
+}
+.tab-btn.active { background: #2b6cb0; color: white; border-color: #2b6cb0; }
+
+.search-wrap { position: relative; width: 320px; }
+.search-input {
+    width: 100%; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px;
+}
+.search-dropdown {
+    position: absolute; top: 36px; left: 0; right: 0;
+    background: #fff; border: 1px solid #eee; border-radius: 4px;
+    box-shadow: 0 4px 10px rgba(0,0,0,.06); z-index: 10; max-height: 240px; overflow: auto;
+}
+.search-dropdown-header {
+    font-size: 12px; color: #666; padding: 6px 8px; display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid #f2f2f2;
+}
+.search-dropdown ul { list-style: none; margin: 0; padding: 6px; }
+.search-dropdown li button {
+    width: 100%; padding: 8px; text-align: left; border: 0; background: transparent; cursor: pointer;
+}
+.search-dropdown li button:hover { background: #f7f7f7; }
+.clear-btn { font-size: 12px; border: 0; background: none; color: #999; cursor: pointer; }
+
+.main {
+    /*flex: 1 1 auto; overflow: auto; */
+    padding: 0;  }
+.panel {
+    /*background: var(--tab-active-bg);*/
+    /*border: 1px solid var(--tab-border);*/
+    /*border-top: none;             !* 탭 스트립의 보더와 이어짐 *!*/
+    /*border-radius: 0 8px 8px 8px; !* 아래 모서리만 둥글게 *!*/
+    /*padding: 16px;*/
+    /*min-height: 240px;*/
+    /*margin: 0 8px 12px;           !* 탭 스트립과 좌우 여백 맞춤 *!*/
+    background:var(--active-bg);
+    border:1px solid var(--border);
+    border-top:none;                 /* 활성 탭과 연결 */
+    border-radius:0 0 12px 12px;     /* 아래쪽만 */
+    padding:16px;
+    min-height:240px;
+    margin:0 8px 12px;
+}
+
+.footer {
+    border-top: 1px solid #eee; padding: 8px; background: #fafafa;
+}
+.cmd-wrap { display: flex; flex-direction: column; gap: 6px; max-width: 960px; margin: 0 auto; }
+.cmd-preview { border: 1px dashed #cbd5e0; background: #f7fafc; padding: 8px; border-radius: 4px; }
+.cmd-title { font-weight: 600; margin-bottom: 4px; color: #2d3748; }
+.cmd-body { color: #4a5568; font-size: 14px; }
+.cmd-input {
+    width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical; min-height: 40px;
+}

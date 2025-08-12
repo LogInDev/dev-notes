@@ -1,6 +1,6 @@
 // src/FlexSimulator.js
 import React, { Component } from "react";
-import FlexibleRenderer from "../components/FlexibleRenderer";
+import FlexibleRenderer from "../components/flex_message_template/FlexibleRenderer";
 import EX1, {imgBot, resevation} from "../requestSample";
 
 const SAMPLE_JSON = imgBot;

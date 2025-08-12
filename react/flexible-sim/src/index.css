@@ -3,14 +3,14 @@ body {
     background: #f7fafd;
     color: #23272f;
 }
-.flex-message-panel * {
-    font-family: inherit;
-    letter-spacing: -0.02em;
-}
-.flex-message-col label:active {
-    background: #dbeafe;
-    border-color: #1e6fbf;
-}
-button:hover {
-    background: #155fb5 !important;
-}
+/*.flex-message-panel * {*/
+/*    font-family: inherit;*/
+/*    letter-spacing: -0.02em;*/
+/*}*/
+/*.flex-message-col label:active {*/
+/*    background: #dbeafe;*/
+/*    border-color: #1e6fbf;*/
+/*}*/
+/*button:hover {*/
+/*    background: #155fb5 !important;*/
+/*}*/
