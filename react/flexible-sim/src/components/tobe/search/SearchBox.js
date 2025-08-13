@@ -11,16 +11,38 @@ class SearchBox extends Component {
     };
 
     componentDidMount() {
-        document.addEventListener('mousedown', this.handleDocClick);
+        // 문서 어디든 클릭/터치 시작 시 먼저 가로챈다(캡처 단계)
+        document.addEventListener('pointerdown', this.handleDocPointerDown, true);
+        document.addEventListener('keydown', this.handleKeyDown);
+        window.addEventListener('blur', this.closeDropdown);
     }
+
     componentWillUnmount() {
-        document.removeEventListener('mousedown', this.handleDocClick);
+        document.removeEventListener('pointerdown', this.handleDocPointerDown, true);
+        document.removeEventListener('keydown', this.handleKeyDown);
+        window.removeEventListener('blur', this.closeDropdown);
     }
-    handleDocClick = (e) => {
-        if (!this.wrapperRef.current) return;
-        if (!this.wrapperRef.current.contains(e.target)) {
-            if (this.props.isOpenDropdown) this.props.setDropdownOpen(false);
+    // ✅ 바깥 클릭 감지 (포털/쉐도우DOM까지 안전)
+    handleDocPointerDown = (e) => {
+        const root = this.wrapperRef.current;
+        if (!root) return;
+        const path = typeof e.composedPath === 'function' ? e.composedPath() : null;
+        const clickedInside = root.contains(e.target) || (path && path.includes(root));
+        if (!clickedInside && this.props.isOpenDropdown) {
+            this.props.setDropdownOpen(false);
         }
+    };
+
+    // ✅ ESC 로 닫기
+    handleKeyDown = (e) => {
+        if (e.key === 'Escape' && this.props.isOpenDropdown) {
+            this.props.setDropdownOpen(false);
+        }
+    };
+
+    // ✅ 창 전환 시 닫기
+    closeDropdown = () => {
+        if (this.props.isOpenDropdown) this.props.setDropdownOpen(false);
     };
 
     onFocus = () => {
@@ -75,7 +97,10 @@ class SearchBox extends Component {
                         <ul>
                             {filtered.map(item => (
                                 <li key={item}>
-                                    <button onClick={() => this.onClickRecent(item)}>{item}</button>
+                                    <button // ✅ 드롭다운 아이템 클릭 시 인풋 blur로 먼저 닫히는 문제 방지
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => this.onClickRecent(item)}
+                                    >{item}</button>
                                 </li>
                             ))}
                         </ul>
