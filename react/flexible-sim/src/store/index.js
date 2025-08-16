@@ -1,13 +1,16 @@
 import { createStore, applyMiddleware, compose } from 'redux';
 import rootReducer from './rootReducer';
+import api from './middlewares/api';
 import persistRecentSearches from './middlewares/persistRecentSearches';
 
-// Redux DevTools 지원(있으면)
 const composeEnhancers =
-    (typeof window !== 'undefined' &&
-        window.__REDUX_DEVTOOLS_EXTENSION_COMPOSE__) || compose;
+    (typeof window !== 'undefined' && window.__REDUX_DEVTOOLS_EXTENSION_COMPOSE__) || compose;
 
-const middlewares = [persistRecentSearches];
+const middlewares = [api, persistRecentSearches];
 
-const store = createStore(rootReducer, composeEnhancers(applyMiddleware(...middlewares)));
-export default store;
+const store = createStore(
+    rootReducer,                               // ★ 여기서만 rootReducer 사용
+    composeEnhancers(applyMiddleware(...middlewares))
+);
+
+export default store;                         // ★ default export로 변경

@@ -3,14 +3,39 @@ body {
     background: #f7fafd;
     color: #23272f;
 }
-/*.flex-message-panel * {*/
-/*    font-family: inherit;*/
-/*    letter-spacing: -0.02em;*/
-/*}*/
-/*.flex-message-col label:active {*/
-/*    background: #dbeafe;*/
-/*    border-color: #1e6fbf;*/
-/*}*/
-/*button:hover {*/
-/*    background: #155fb5 !important;*/
-/*}*/
+/* 모든 브라우저 기본 스타일 초기화 */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+html, body {
+    height: 100%;
+    font-family: 'Pretendard', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    line-height: 1.4;
+    background-color: #fff;
+    color: #333;
+}
+a {
+    color: inherit;
+    text-decoration: none;
+}
+ul, ol {
+    list-style: none;
+}
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font: inherit;
+}
+
+.main-wrap{
+    display: flex;
+    justify-content: space-between;
+}

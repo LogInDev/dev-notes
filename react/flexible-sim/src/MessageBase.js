@@ -303,9 +303,9 @@ class MessageItem extends MessageBase {
         );
       // if (msg.type === 'C') {
       //   lastMarks.push(
-      //     <span className={`comment-action ${className}`} key={i}>
+      //     <span className={`comment-actions ${className}`} key={i}>
       //       <img src={`${global.CONFIG.resource.image}/ico/${icon}.png`} onClick={this.toggleLike.bind(this)} alt={msgKey}/>
-      //       {msg[action] || 1}
+      //       {msg[actions] || 1}
       //     </span>
       //   );
       // }
