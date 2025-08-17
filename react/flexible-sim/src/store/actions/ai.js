@@ -3,10 +3,14 @@ import { createSearch, fetchHistory, fetchResult } from '../../api/searchApi';
 // 좌측 히스토리 무한 스크롤
 export const loadHistory = () => ({
     types: ['history/REQ', 'history/SUCC', 'history/FAIL'],
+
+    // ✅ 이미 로딩 중이면 액션 자체를 스킵 (REQ도 안 감)
+    condition: (getState) => getState().history.loading === true,
+
     call: async (getState) => {
-        const { cursor, loading } = getState().history;
-        if (loading) return { items: [], nextCursor: cursor };
-        const { data } = await fetchHistory(cursor);
+        const { cursor } = getState().history;
+        console.log('[AI] loadHistory -> fetch', { cursor });
+        const { data } = await fetchHistory(cursor);   // ← 여기서 [API REQ] 로그가 찍혀야 정상
         const payload = data?.data || {};
         return { items: payload.items || [], nextCursor: payload.nextCursor || null };
     },
@@ -16,7 +20,7 @@ export const loadHistory = () => ({
 export const loadResult = (queryId) => ({
     types: ['result/REQ', 'result/SUCC', 'result/FAIL'],
     call: async (_getState, dispatch) => {
-        dispatch({ type: 'result/SET_QUERY', queryId }); // 메시지 초기화
+        dispatch({ type: 'result/SET_QUERY', queryId });
         const { data } = await fetchResult(queryId, null, 100);
         const payload = data?.data || {};
         return { queryId, messages: payload.messages || [] };

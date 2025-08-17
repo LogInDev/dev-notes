@@ -20,7 +20,7 @@ public class SearchService {
     public Long createSearch(Long userId, String keyword) {
         final SearchQuery q = new SearchQuery(null, userId, keyword, null);
         mapper.insertSearch(q);
-        return q.id();
+        return q.getId();
     }
 
     public CursorPage<SearchQuery> getHistory(Long userId, String cursor, int size) {
@@ -37,7 +37,7 @@ public class SearchService {
         String next = null;
         if(hasMore && !items.isEmpty()){
             SearchQuery last = items.get(items.size()-1);
-            next = Base64.getEncoder().encodeToString((last.createdAt()+":"+last.id()).getBytes());
+            next = Base64.getEncoder().encodeToString((last.getCreatedAt()+":"+last.getId()).getBytes());
         }
         return new CursorPage<>(items, next, hasMore);
     }

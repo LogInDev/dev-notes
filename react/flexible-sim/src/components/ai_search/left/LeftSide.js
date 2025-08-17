@@ -11,6 +11,7 @@ class LeftSide extends Component {
     observer = null;
 
     componentDidMount() {
+        console.log('[LeftSide] mount → loadHistory()');
         if (this.props.activeLeftTab === 'ai' && this.props.items.length === 0) {
             this.props.loadHistory();
         }

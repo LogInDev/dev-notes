@@ -22,7 +22,7 @@ public class SearchController {
         return ApiResponse.ok(searchService.createSearch(userId, keyword));
     }
 
-    @GetMapping("searches")
+    @GetMapping("/searches")
     public ApiResponse<CursorPage<SearchQuery>> history(@RequestParam(defaultValue = "1") Long userId,
                                                         @RequestParam(required = false) String cursor,
                                                         @RequestParam(defaultValue = "20") @Min(1) @Max(100) Integer size) {

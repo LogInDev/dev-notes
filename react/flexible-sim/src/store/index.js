@@ -14,3 +14,7 @@ const store = createStore(
 );
 
 export default store;                         // ★ default export로 변경
+if (process.env.NODE_ENV === 'development') {
+    window.__store = store;               // 콘솔에서 디스패치 테스트
+    console.log('[STORE READY]');
+}

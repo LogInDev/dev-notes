@@ -1,5 +1,14 @@
+// com/cube/search/domain/SearchQuery.java
 package com.cube.search.domain;
-
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import java.time.LocalDateTime;
 
-public record SearchQuery(Long id, Long userId, String keyword, LocalDateTime createdAt) {}
+@Data
+@AllArgsConstructor
+public class SearchQuery {
+    private Long id;
+    private Long userId;
+    private String keyword;
+    private LocalDateTime createdAt;
+}
