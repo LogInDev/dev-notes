@@ -1,30 +1,44 @@
-import { createSearch, fetchHistory, fetchResult } from '../../api/searchApi';
+import { createSearch, fetchHistory, fetchResult, fetchResultMessages } from '../../api/searchApi';
 
-// 좌측 히스토리 무한 스크롤
+const pickHistory = (raw) => {
+    const d = raw?.data?.data || raw?.data || raw || {};
+    return {
+        items: d.items || [],
+        nextCursor: d.nextCursor || null
+    };
+};
+
+const pickResult = (raw) => {
+    const d = raw?.data?.data || raw?.data || raw || {};
+    return {
+        messages: (d.messages || []).map(m => ({ id:m.id, seq:m.seq, text:m.text, role:m.role }))
+    };
+};
+
 export const loadHistory = () => ({
-    types: ['history/REQ', 'history/SUCC', 'history/FAIL'],
-
-    // ✅ 이미 로딩 중이면 액션 자체를 스킵 (REQ도 안 감)
-    condition: (getState) => getState().history.loading === true,
-
-    call: async (getState) => {
-        const { cursor } = getState().history;
-        console.log('[AI] loadHistory -> fetch', { cursor });
-        const { data } = await fetchHistory(cursor);   // ← 여기서 [API REQ] 로그가 찍혀야 정상
-        const payload = data?.data || {};
-        return { items: payload.items || [], nextCursor: payload.nextCursor || null };
+    types: ['history/REQ','history/SUCC','history/FAIL'],
+    condition: (get) => get().history.loading === true,
+    call: async (get) => {
+        const { cursor } = get().history; // { createdAt, id } | null
+        const res = await fetchHistory(cursor);
+        const d = res.data?.data || {};
+        return {
+            items: d.items || [],
+            nextCursor:
+                d.nextCursorCreatedAt && d.nextCursorId
+                    ? {createdAt: d.nextCursorCreatedAt, id: d.nextCursorId}
+                    : null,
+        };
     },
 });
 
-// 히스토리 아이템 클릭 → 결과 로딩
 export const loadResult = (queryId) => ({
-    types: ['result/REQ', 'result/SUCC', 'result/FAIL'],
-    call: async (_getState, dispatch) => {
-        dispatch({ type: 'result/SET_QUERY', queryId });
-        const { data } = await fetchResult(queryId, null, 100);
-        const payload = data?.data || {};
-        return { queryId, messages: payload.messages || [] };
-    },
+    types: ['result/REQ','result/SUCC','result/FAIL'],
+    call: async () => {
+        const res = await fetchResult(queryId);
+        const { messages } = pickResult(res);
+        return { queryId, messages };
+    }
 });
 
 // 헤더 검색 제출(POST → 결과 조회)
@@ -38,5 +52,22 @@ export const submitSearch = (keyword) => ({
         const res = await fetchResult(queryId, null, 100);
         const payload = res?.data?.data || {};
         return { queryId, messages: payload.messages || [] };
+    },
+});
+
+// RIGHT: (필요 시) 메시지 무한 스크롤
+export const loadMoreMessages = (queryId) => ({
+    types: ['result/REQ','result/SUCC','result/FAIL'],
+    call: async (get) => {
+        const lastSeq = get().result.nextCursorSeq ?? null;
+                        const res = await fetchResultMessages(queryId, lastSeq);
+        const d = res.data?.data || {};
+        return {
+            queryId,
+            messages: (d.messages || []).map(m => ({
+                id: m.id, seq: m.seq, role: m.role, text: m.text,
+            })),
+            nextCursorSeq: d.nextCursorSeq ?? null,
+            };
     },
 });

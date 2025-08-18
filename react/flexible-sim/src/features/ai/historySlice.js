@@ -7,31 +7,15 @@ const INITIAL_STATE = {
 };
 
 // actions types
-export const REQ  = 'history/REQ';
-export const SUCC = 'history/SUCC';
-export const FAIL = 'history/FAIL';
-export const RESET = 'history/RESET'; // (옵션) 탭 전환 등 초기화에 사용
-
-export default function reducer(state = INITIAL_STATE, action) {
-    switch (action.type) {
-        case REQ:
-            return { ...state, loading: true, error: null };
-
-        case SUCC:
-            return {
-                ...state,
-                loading: false,
-                items: [...state.items, ...(action.payload?.items || [])],
-                cursor: action.payload?.nextCursor ?? null,
-            };
-
-        case FAIL:
-            return { ...state, loading: false, error: action.error || 'error' };
-
-        case RESET:
-            return INITIAL_STATE;
-
-        default:
-            return state;
+export default function history(state=INITIAL_STATE, action){
+    switch(action.type){
+        case 'history/REQ': return { ...state, loading:true };
+        case 'history/SUCC': return {
+            ...state, loading:false,
+            items: [...state.items, ...(action.payload.items||[])],
+            cursor: action.payload.nextCursor || null
+        };
+        case 'history/FAIL': return { ...state, loading:false, error: action.error || 'fail' };
+        default: return state;
     }
 }

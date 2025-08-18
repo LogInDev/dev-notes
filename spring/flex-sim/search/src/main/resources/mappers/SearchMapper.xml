@@ -1,39 +1,55 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.cube.search.mapper.SearchMapper">
+
+    <!-- 히스토리: (created_at DESC, id DESC) 커서 페이징 -->
     <select id="selectHistoryByCursor" resultType="com.cube.search.domain.SearchQuery">
-        SELECT id, user_id AS userId, keyword, created_at AS createdAt
+        SELECT id,
+        user_id    AS userId,
+        keyword,
+        created_at AS createdAt
         FROM search_query
         WHERE user_id = #{userId}
         <if test="cursorCreatedAt != null and cursorId != null">
-            <![CDATA[
-              AND (
-                created_at < #{cursorCreatedAt}
-                OR (created_at = #{cursorCreatedAt} AND id < #{cursorId})
-              )
-            ]]>
+            AND (
+            created_at &lt; #{cursorCreatedAt}
+            OR (created_at = #{cursorCreatedAt} AND id &lt; #{cursorId})
+            )
         </if>
         ORDER BY created_at DESC, id DESC
         LIMIT #{size}
     </select>
 
-    <insert id="insertSearch" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO search_query(user_id, keyword) VALUES(#{userId}, #{keyword})
-    </insert>
-
+    <!-- 결과 헤더(최신 1건) -->
     <select id="selectResultHeader" resultType="com.cube.search.domain.AiResult">
-        SELECT id, query_id AS queryId, status, provider, model_name AS modelName, created_at AS createdAt
-        FROM ai_result WHERE query_id = #{queryId} ORDER BY created_at DESC LIMIT 1
+        SELECT id,
+               query_id   AS queryId,
+               status,
+               provider,
+               model_name AS modelName,
+               created_at AS createdAt
+        FROM ai_result
+        WHERE query_id = #{queryId}
+        ORDER BY created_at DESC
+            LIMIT 1
     </select>
 
-    <select id="selectMessagesByResult" resultType="com.cube.search.domain.AiResultMessage">
-        SELECT id, result_id AS resultId, seq, role, text, meta, created_at AS createdAt
+    <!-- 결과 메시지: seq ASC로 이어붙이기 + cursorSeq 이후만 -->
+    <select id="selectMessageByResult" resultType="com.cube.search.domain.AiResultMessage">
+        SELECT id,
+        result_id  AS resultId,
+        seq,
+        role,
+        text,
+        meta,
+        created_at AS createdAt
         FROM ai_result_message
         WHERE result_id = #{resultId}
         <if test="cursorSeq != null">
-            <![CDATA[ AND seq > #{cursorSeq} ]]>
+            AND seq &gt; #{cursorSeq}
         </if>
         ORDER BY seq ASC
         LIMIT #{size}
     </select>
+
 </mapper>
