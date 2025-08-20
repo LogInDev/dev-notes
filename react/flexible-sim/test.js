@@ -22,6 +22,11 @@ class DropdownBox extends React.Component {
 
   }
 
+  handleContextMenu = (event) => {
+    event.preventDefault(); // 기본 우클릭 메뉴 막기
+    alert("이 버튼에서는 오른쪽 클릭이 막혀 있습니다!");
+  };
+
   handleClickOutside = (event) => {
     // 클릭한 대상이 box, button 내부가 아니라면 닫기
     if (
