@@ -11,11 +11,15 @@ class DropdownBox extends React.Component {
   componentDidMount() {
     // 문서 전체 클릭 이벤트 등록
     document.addEventListener("mousedown", this.handleClickOutside);
+        document.addEventListener('contextmenu', event => event.preventDefault());
+
   }
 
   componentWillUnmount() {
     // 컴포넌트 사라질 때 이벤트 해제 (메모리 누수 방지)
     document.removeEventListener("mousedown", this.handleClickOutside);
+      //   document.removeEventListner('contextmenu', event => event.preventDefault());
+
   }
 
   handleClickOutside = (event) => {
@@ -66,5 +70,6 @@ class DropdownBox extends React.Component {
     );
   }
 }
+
 
 export default DropdownBox;
