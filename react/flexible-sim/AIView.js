@@ -1,16 +1,17 @@
-import React, {Component, createRef} from 'react';
+import React, { Component, createRef } from 'react';
 import { connect } from 'react-redux';
-import slimscroll from 'slimscroll';
-import { executeSearch } from '../../../actions'
+// ✅ 프로젝트에서 쓰던 커스텀 유틸 경로 사용
+import slimscroll from 'util/slimscroll';
+import { executeSearch } from '../../../actions';
 
 const defaultProps = {
-    isPopup : false,
-    setColor : {
-      background : '#fff',
-      font : '#111'
-    },
-    height : '95%',
-}
+  isPopup: false,
+  setColor: {
+    background: '#fff',
+    font: '#111'
+  },
+  height: '95%',
+};
 
 class AIView extends Component {
   constructor(props) {
@@ -19,12 +20,14 @@ class AIView extends Component {
     this.state = {
       selectedFile: null,
       query: '',
-    }
+    };
 
+    // ✅ 안전한 ref
+    this.aiviewRef = createRef();
     this.fileInputRef = createRef();
-    this.wrapperRef = createRef();
+    this.inputRef = createRef();
 
-    // 추가
+    // 스크롤 상태
     this.isFirst = true;
     this.scrollBottom = -1;
     this.scrollTop = -1;
@@ -40,88 +43,64 @@ class AIView extends Component {
     this.moveScroll = this.moveScroll.bind(this);
     this.onSlimscroll = this.onSlimscroll.bind(this);
     this.initScrollParam = this.initScrollParam.bind(this);
-
-    this.channelid = -1;
-
-    this.preTop = undefined;
-    this.preBottom = undefined;
   }
 
-  componentDidMount(){
-    var node = this.refs.aiview;
-    console.log('node------------', node)
-    console.log('node------------', node.scrollTop)
+  componentDidMount() {
+    const node = this.aiviewRef.current;
+    if (!node) return;
+
+    // ✅ 스크롤 이벤트 바인딩
     node.addEventListener('slimscroll', this.onSlimscroll);
+
+    // ✅ 최초 진입 시 하단 고정
+    this.scrollBottom = 0; // 아래로 이동 플래그
+    this.moveScroll(0);
   }
 
-  // componentWillUnmount() {
-  //   if (this.listEl) {
-  //     this.listEl.removeEventListener('slimscroll', this.onSlimscroll);
-  //     this.listEl = null;
-  //   }
-  //   this.destroySlimscroll();
-  // }
-
-    componentWillReceiveProps(nextProps) {
-    let { queryId } = this.props;
-    // this.props.messages.scrollstop = false;
-    // let preList = this.props.messages.list;
-    // let preTop = this.props.messages.topMessageID;
-    // let preBottom = this.props.messages.bottomMessageID;
-    // let preFind = this.props.messages.findMessageID;
-
-    this.scrollBottom = -1;
-    this.scrollTop = -1;
-
-    // let prevListChannelid = preList.length > 0 ? preList[0].channel_id + '' : '-1';
-    // let nextListChannelid = list.length > 0 ? list[0].channel_id + '' : '-1';
-
-    let channelMove = queryId !== nextProps.queryId;
-    // let listChange = topMessageID !== preTop || bottomMessageID !== preBottom;
-
-    // if (findMessageID !== '-1' && preFind.replace('!', '') !== findMessageID.replace('!', '')) {
-    //   this.props.messages.scrollstop = false;
-    //   // FIND
-    //   this.preScrollBottom = -1;
-    //   this.preScrollTop = -1;
-      if (channelMove) {
-        this.initScrollParam();
-      }
-    // } else if (!channelMove && preTop > topMessageID) {
-    //   // PREV
-    //   this.scrollBottom = this.refs.chatlistin.scrollHeight;
-    // } else if (!channelMove && topMessageID === preTop && preBottom < bottomMessageID) {
-    //   this.props.messages.scrollstop = false;
-    //   // NEXT or Receive Message
-    //   if (list.length - preList.length === 1) {
-    //     this.scrollBottom = 0;
-    //   } else {
-    //     this.scrollTop = this.refs.chatlistin.scrollTop;
-    //   }
-    // } else if (channelMove || listChange || this.isFirst) {
-    //   // DIR
-    //   this.scrollBottom = 0;
-    //   this.initScrollParam();
-    // }
+  componentWillUnmount() {
+    const node = this.aiviewRef.current;
+    if (node) {
+      node.removeEventListener('slimscroll', this.onSlimscroll);
+    }
+    // ✅ 플러그인 정리
+    if (this.slimscroll && typeof this.slimscroll.destroy === 'function') {
+      this.slimscroll.destroy();
+    }
   }
 
-componentDidUpdate() {
-    let currentScrollHeight = this.refs.aiview.scrollHeight;
-    let currentScrollTop = this.refs.aiview.scrollTop;
+  // queryId 변경 시(=다른 질의 스레드) 스크롤 파라미터 초기화
+  componentWillReceiveProps(nextProps) {
+    const { queryId } = this.props;
+    if (queryId !== nextProps.queryId) {
+      this.scrollBottom = 0; // 하단으로 붙이기
+      this.scrollTop = -1;
+      this.initScrollParam();
+    }
+  }
+
+  componentDidUpdate() {
+    const node = this.aiviewRef.current;
+    if (!node) return;
+
+    const currentScrollHeight = node.scrollHeight;
+    const currentScrollTop = node.scrollTop;
 
     if (this.isModify) {
       this.isModify = false;
-    } else if (this.precurrentScrollTop - currentScrollTop > 150) { // 새글왔을때 유지
-      return false;
-    } else if (this.scrollBottom > -1 || this.scrollTop > -1) {
-      let node = this.refs.aiview; //ReactDOM.findDOMNode(this);
+      return;
+    }
+
+    // 새 글 왔을 때 사용자가 많이 위로 올려놓은 경우 유지
+    if (this.precurrentScrollTop - currentScrollTop > 150) {
+      return;
+    }
+
+    if (this.scrollBottom > -1 || this.scrollTop > -1) {
       let scrollHeight = 0;
 
       if (this.scrollBottom > -1) {
         scrollHeight = node.scrollHeight - this.scrollBottom;
-        if (scrollHeight > -1) {
-          this.preScroll = scrollHeight;
-        }
+        if (scrollHeight > -1) this.preScroll = scrollHeight;
       } else if (this.scrollTop > -1) {
         this.preScroll = this.scrollTop;
       }
@@ -129,31 +108,19 @@ componentDidUpdate() {
       this.preScrollBottom = this.scrollBottom;
       this.preScrollTop = this.scrollTop;
 
-      if (this.preScroll > -1) {
-        this.moveScroll(this.preScroll);
-      } else {
-        this.moveScroll(0);
-      }
+      this.moveScroll(this.preScroll > -1 ? this.preScroll : 0);
     } else if (this.prevScrollHeight + 20 < currentScrollHeight) {
-      if (this.preScrollBottom > -1 || this.preScrollTop > -1) {
-        let node = this.refs.aiview;
-        let scrollHeight = 0;
+      // 콘텐츠 높이 증가 시 앵커 복원
+      let scrollHeight = 0;
 
-        if (this.preScrollBottom > -1) {
-          scrollHeight = node.scrollHeight - this.preScrollBottom;
-          if (scrollHeight > -1) {
-            this.preScroll = scrollHeight;
-          }
-        } else if (this.preScrollTop > -1) {
-          this.preScroll = this.preScrollTop;
-        }
-
-        if (this.preScroll > -1) {
-          this.moveScroll(this.preScroll);
-        } else {
-          this.moveScroll(0);
-        }
+      if (this.preScrollBottom > -1) {
+        scrollHeight = node.scrollHeight - this.preScrollBottom;
+        if (scrollHeight > -1) this.preScroll = scrollHeight;
+      } else if (this.preScrollTop > -1) {
+        this.preScroll = this.preScrollTop;
       }
+
+      this.moveScroll(this.preScroll > -1 ? this.preScroll : 0);
     }
   }
 
@@ -163,290 +130,188 @@ componentDidUpdate() {
   }
 
   moveScroll(height) {
+    // ✅ idSelector는 실제 DOM id와 일치해야 함
+    //   아래 render에서 id="aiviewMsg" 부여함
     this.slimscroll = new slimscroll({
       height: '100%',
       idSelector: '#aiviewMsg',
-      scrollTo: height || '100000'
+      scrollTo: height || '100000', // 하단 이동
     });
     this.slimscroll.init();
 
-    this.prevScrollHeight = this.refs.aiview.scrollHeight;
-    this.precurrentScrollTop = this.refs.aiview.scrollTop;
+    const node = this.aiviewRef.current;
+    if (!node) return;
+
+    this.prevScrollHeight = node.scrollHeight;
+    this.precurrentScrollTop = node.scrollTop;
+
     if (this.scrollBottom === -1 && this.scrollTop === -1) {
-      // IS FIND
+      // FIND 모드: 절대 위치 기억
       this.preScrollTop = height;
-      // this.preScrollBottom = this.scrollBottom
     }
 
     if (this.isFirst) {
       this.isFirst = false;
     }
+
+    // 플래그 리셋
+    this.scrollBottom = -1;
+    this.scrollTop = -1;
   }
 
   onSlimscroll(e) {
-    let { queryId } = this.props;
-    
-    // if (queryId) {
-    //   return;
-    // } 
+    const node = this.aiviewRef.current;
+    if (!node) return;
 
-    let node = this.refs.aiview;
-    // let api = Socket.getApi();
-    // console.debug('bottomMessageID = ', bottomMessageID);
-    // console.debug('node.scrollTop = ', Math.round(node.scrollTop));
-    // console.debug('node.offsetHeight = ', node.offsetHeight);
-    // console.debug('node.scrollHeight = ',node.scrollHeight);
+    // 상단 도달 → 이전 데이터 로드 트리거 지점
     if (node.scrollTop === 0) {
-      // if (topMessageID > 0) {
-      //   if (this.preTop !== topMessageID) {
-      //     this.props.messages.scrollstop = false;
-      //     this.preTop = topMessageID;
-      //     api.selectMessageList('PREV');
-      //     if (list.length > 45) {
-      //       this.props.messages.hasNext = 1; // Go to Recent 표시 처리
-      //     } else {
-      //       this.props.messages.hasNext = 0;
-      //     }
-      //   }
-      // }
-      console.log('scrollTop이 0이면----->>> ', node.scrollTop)
-    } else if (Math.round(node.scrollTop) + node.offsetHeight === node.scrollHeight 
-                  // && bottomMessageID > 0
-    ) {
-      // if (this.preBottom !== bottomMessageID && hasNext) {
-      //   this.props.messages.scrollstop = false;
-      //   this.preBottom = bottomMessageID;
-      //   api.selectMessageList('NEXT');
-      // }else{
-      // }
-      console.log('scroll  scrollTop이 >>>>', node.scrollTop)
-      console.log('scroll  offsetHeight >>>>', node.offsetHeight)
-      console.log('scroll  scrollHeight >>>>', node.scrollHeight)
+      // 여기서 prev 로드 action 호출 가능
+      // ex) this.props.loadPrev(this.props.queryId)
+      // console.log('[AIView] reached TOP');
+    }
+    // 하단 도달 → 다음/최근 데이터 로드 트리거 지점
+    else if (Math.round(node.scrollTop) + node.offsetHeight === node.scrollHeight) {
+      // ex) this.props.loadNext(this.props.queryId)
+      // console.log('[AIView] reached BOTTOM');
     }
     e.stopPropagation();
   }
 
   loadMore(listcount) {
-    console.log('--------AI THREAD 리스트 업데이트------------')
+    // 필요시 사용
     this.isUpdate = true;
   }
 
-  handleFileChange = (event) =>{
-    const file = event.target.files[0]; // 선택된 파일 가져오기
+  handleFileChange = (event) => {
+    const file = event.target.files[0];
     if (file) {
       this.setState({ selectedFile: file });
-      console.log('선택된 파일:', file);
     }
-  }
+  };
 
-  searchQuery = () =>{
-    this.props.executeSearch(this.wrapperRef.current.value);
-    this.setState({query:''})
-  }
+  searchQuery = () => {
+    // ✅ state 기반으로 일원화
+    this.props.executeSearch(this.state.query);
+    this.setState({ query: '' });
+  };
 
   handleKeyDown = (event) => {
     if (event.key === 'Enter') {
-        event.preventDefault();
-        
-        this.searchQuery(event.target.value); 
-      }
-  }
+      event.preventDefault();
+      this.searchQuery();
+    }
+  };
 
-  render(){
-    let { image } = global.CONFIG.resource;
-    const { query } = this.state;
-    const { setColor, isPopup, height, queryId } = this.props;
+  render() {
+    const { image } = global.CONFIG.resource;
+    const { query, selectedFile } = this.state;
+    const { setColor, isPopup, height, queryId, hideDetail } = this.props;
     const { background, font } = setColor;
 
-    return(
-        <div className={this.props.hideDetail ? 'hidden' :'right' }
+    return (
+      <div
+        className={hideDetail ? 'hidden' : 'right'}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'flex-start',
+          padding: '15px',
+          height: '100%',
+          backgroundColor: isPopup ? '#fff' : background,
+        }}
+      >
+        {/* Header */}
+        <div style={{ height: '5%' }}>
+          <span style={{ fontSize: '15px', fontWeight: 'bold' }}>✨AI 결과 </span>
+          <div
+            style={{
+              backgroundColor: '#fff',
+              borderTop: '1px solid #8c8c8c',
+              margin: '20px auto',
+            }}
+          />
+        </div>
+
+        {/* Body */}
+        <div
           style={{
-            display : 'flex',
+            display: 'flex',
+            marginTop: '10px',
             flexDirection: 'column',
-            justifyContent: 'flex-start',
-            padding: '15px',
-            height: '100%',
-            backgroundColor: isPopup ? '#fff' : background  // 설정으로 변경가능(팝업제외)
+            justifyContent: 'space-between',
+            flex: 1,
+            height: isPopup ? height - 90 + 'px' : height,
           }}
         >
-          {/* AI Panel 상단 */}
-            <div style={{height:'5%'}}>
-              <span
-                style={{
-                  fontSize: '15px',
-                  fontWeight: 'bold'
-                }}
-              >✨AI 결과 </span>
-              <div
-                style={{
-                  backgroundColor: '#fff',
-                  borderTop: '1px solid #8c8c8c',
-                  margin: '20px auto',
-                }}
+          {/* ✅ 스크롤 영역: 고정 높이 + overflowY 필요 */}
+          <div
+            ref={this.aiviewRef}
+            id="aiviewMsg"
+            className="aiview"
+            style={{
+              fontSize: '15px',
+              lineHeight: '1.5',
+              color: isPopup ? '#111' : font,
+              flex: 1,
+              overflowY: 'auto',
+              // height를 명시적으로 주려면 아래 사용
+              // height: '100%'
+            }}
+          >
+            <br />
+            CurrentID : {queryId} <br />
+            안녕하세요 <br />
+            Pizza입니다. <br />
+            무엇을 도와드릴까요? <br />
+            <br />
+            현재 테스트 진행중입니다.<br />
+            <br />
+            {/* ... 더미 텍스트 생략 ... */}
+          </div>
+
+          {/* 입력 영역 */}
+          <div style={{ display: 'flex' }} className="search_ai">
+            <img
+              className="app"
+              src={image + '/chat/btn-plus.png'}
+              onClick={() => this.fileInputRef.current.click()}
+              role="presentation"
+              alt="파일추가"
+            />
+            <input
+              type="file"
+              accept="application/pdf"
+              onChange={this.handleFileChange}
+              ref={this.fileInputRef}
+              style={{ display: 'none' }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+              {selectedFile && <p>선택된 파일: {selectedFile.name}</p>}
+              <input
+                ref={this.inputRef}
+                type="text"
+                style={{ width: '100%' }}
+                placeholder="검색어를 입력하세요"
+                name="queryInput"
+                value={query}
+                onChange={(e) => this.setState({ query: e.target.value })}
+                onKeyDown={this.handleKeyDown}
               />
             </div>
-          {/* 검색 결과 및 질의 입력*/}
-            <div
-              style={{
-                  display: 'flex',
-                  marginTop: '10px',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  flex: '1',
-                  height: isPopup ? height - 90 + 'px' : height
-                }}
-            >
-              {/* 검색 결과 */}
-              <div
-                ref='aiview'
-                id='aiviewMsg'
-                className='aiview'
-                style={{
-                  fontSize:'15px',
-                  lineHeight: '1.5',
-                  color: isPopup ? '#111' : font, // 설정으로 변경가능(팝업제외)
-                  // height : isPopup ? '95%' : '',
-                  // overflowY: isPopup ? 'auto' : ''
-                }}
-              >
-                  <br />
-                  CurrentID : {queryId} <br />
-                  안녕하세요 <br />
-                  Pizza입니다. <br />
-                  무엇을 도와드릴까요? <br />
-                  <br />
-                  현재 테스트 진행중입니다.<br />
-                  <br />
-                  <br />
-                  안녕하세요 <br />
-                  Pizza입니다. <br />
-                  무엇을 도와드릴까요? <br />
-                  <br />
-                  현재 테스트 진행중입니다.<br />
-                  <br />
-                  <br />
-                  안녕하세요 <br />
-                  Pizza입니다. <br />
-                  무엇을 도와드릴까요? <br />
-                  <br />
-                  현재 테스트 진행중입니다.<br />
-                  <br />
-                  <br />
-                  안녕하세요 <br />
-                  Pizza입니다. <br />
-                  무엇을 도와드릴까요? <br />
-                  <br />
-                  현재 테스트 진행중입니다.<br />
-                  <br />
-                  <br />
-                  안녕하세요 <br />
-                  Pizza입니다. <br />
-                  무엇을 도와드릴까요? <br />
-                  <br />
-                  현재 테스트 진행중입니다.<br />
-                  <br />
-                  <br />
-                  안녕하세요 <br />
-                  Pizza입니다. <br />
-                  무엇을 도와드릴까요? <br />
-                  <br />
-                  현재 테스트 진행중입니다.<br />
-                  <br />
-                  <br />
-                  안녕하세요 <br />
-                  Pizza입니다. <br />
-                  무엇을 도와드릴까요? <br />
-                  <br />
-                  현재 테스트 진행중입니다.<br />
-                  <br />
-                  <br />
-                  안녕하세요 <br />
-                  Pizza입니다. <br />
-                  무엇을 도와드릴까요? <br />
-                  <br />
-                  현재 테스트 진행중입니다.<br />
-                  <br />
-                  <br />
-                  안녕하세요 <br />
-                  Pizza입니다. <br />
-                  무엇을 도와드릴까요? <br />
-                  <br />
-                  현재 테스트 진행중입니다.<br />
-                  <br />
-                  <br />
-                  안녕하세요 <br />
-                  Pizza입니다. <br />
-                  무엇을 도와드릴까요? <br />
-                  <br />
-                  현재 테스트 진행중입니다.<br />
-                  <br />
-                  <br />
-                  안녕하세요 <br />
-                  Pizza입니다. <br />
-                  무엇을 도와드릴까요? <br />
-                  <br />
-                  현재 테스트 진행중입니다.<br />
-                  <br />
-                  <br />
-                  안녕하세요 <br />
-                  Pizza입니다. <br />
-                  무엇을 도와드릴까요? <br />
-                  <br />
-                  현재 테스트 진행중입니다.<br />
-                  <br />
-                  
-
-              </div>
-              {/* 질의문 입력 및 파일 추가 */}
-              <div style={{display:'flex' }} className="search_ai">
-                <img
-                  className="app"
-                  src={image + '/chat/btn-plus.png'}
-                  onClick={() => this.fileInputRef.current.click()}
-                  role="presentation"
-                />
-                <input
-                  type="file"
-                  accept="pdf"
-                  onChange={this.handleFileChange}
-                  ref={this.fileInputRef} 
-                  style={{display:"none"}}
-                />
-                <div
-                  style={{
-                    display:'flex',
-                    flexDirection: 'column',
-                    flex: 1 ,
-                  }}
-                >
-                  {this.state.selectedFile && (
-                    <p>선택된 파일: {this.state.selectedFile && this.state.selectedFile.name}</p> 
-                  )}
-                  <input ref={this.wrapperRef} type="text" style={{width:'100%'}} 
-                    placeholder='검색어를 입력하세요' 
-                    name="queryInput"
-                    value={query}
-                    onChange={(e) => this.setState({ query: e.target.value })}
-                    onClick={(e) => e.preventDefault()}
-                    onKeyDown={this.handleKeyDown}
-                  />
-                </div>
-                <button onClick={this.searchQuery}>🔎</button>
-            </div>
-            </div>
-        </div>              
-    )
+            <button onClick={this.searchQuery}>🔎</button>
+          </div>
+        </div>
+      </div>
+    );
   }
 }
 
 AIView.defaultProps = defaultProps;
 
-const mapStateToProps = (state) => {
-  return {
-    hideDetail: state.uiSetting.hide_detail,
-    setColor: state.aiAssistant.color,
-    queryId: state.aiAssistant.queryId,
-  };
-};
+const mapStateToProps = (state) => ({
+  hideDetail: state.uiSetting.hide_detail,
+  setColor: state.aiAssistant.color,
+  queryId: state.aiAssistant.queryId,
+});
 
-export default  connect(mapStateToProps, {executeSearch})(AIView);
+export default connect(mapStateToProps, { executeSearch })(AIView);
