@@ -306,5 +306,33 @@ componentDidUpdate에서 isShowBotList가 true일 때 슬림스크롤을 초기�
 
 
 
-
+빠른 수정 포인트 맵
+	•	렌더 흐름 분기: renderExtra()
+	•	무엇을 그릴지 결정 (multireply vs 일반).
+	•	새 렌더 모드 추가/변경은 여기.
+	•	카드(일반): renderRich() → renderRow() → renderColumn()
+	•	행/열 스타일 + 컨트롤 호출
+	•	행/열 스타일 규칙 변경은 renderRow/Column.
+	•	컨트롤 핵심: renderControl(col, key, idx)
+	•	권한/disabled, answer 반영, ref 바인딩, 스타일, 타입별 DOM 생성.
+	•	👉 새 컨트롤 타입 추가/기존 타입 UX 변경은 여기 switch(type).
+	•	👉 **권한 정책(누가 입력 가능?)**은 여기의 to.uniquename 분기.
+	•	👉 placeholder, maxlength, 색상, width 등 공통 스타일 규칙도 여기.
+	•	리스트/캐러셀: renderList() / renderListContainer()
+	•	👉 페이지네이션·슬라이드 규칙 변경은 여기.
+	•	봇 멀티: renderRichBot() / renderRichBotList() / botProcess()
+	•	👉 봇 캐러셀/요약 리스트 UX/동작 변경은 여기.
+	•	날짜·시간:
+	•	가져오기: getSelectedDate/DateTime/Time
+	•	변경 핸들러: onChangeDate/DateTime/Time
+	•	👉 포맷/초기값/상태 동기 규칙은 여기.
+	•	응답 전송: confirmProcess()
+	•	requestObj 수집 → 검증(minlength/mandatory) → resultdata → 헤더 병합 → 소켓 전송 → rnanswer 반영
+	•	👉 페이로드 스펙/검증 로직/전송 후 처리는 여기.
+	•	공통 수집 버킷: requestObj
+	•	👉 값 수집 방식(Ref vs 값), 구조 바꾸고 싶으면 여기에 맞춰 renderControl 바인딩을 조정.
+	•	다국어 인덱스: this.languageType
+	•	👉 다국어 선택 로직/폴백 규칙 바꾸려면 여기 사용 지점을 조정.
+	•	슬림스크롤: componentDidUpdate()
+	•	👉 리스트 펼칠 때 스크롤 초기화 타이밍은 여기.
 
