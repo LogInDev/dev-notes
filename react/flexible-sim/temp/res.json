@@ -1,0 +1,316 @@
+{
+    "fileOnlyViewYN": "N",
+    "register_name": "Cube Bot",
+    "dateline": "",
+    "dept_name_m": [
+        " ",
+        " ",
+        " ",
+        " ",
+        " "
+    ],
+    "last_modify_id": -1,
+    "link_cid": "0",
+    "type": "X",
+    "content": "test Title",
+    "view_mobile": "N",
+    "categorypath": "",
+    "register_name_m": [
+        "Cube Bot",
+        "Cube Bot",
+        "Cube Bot",
+        "Cube Bot",
+        "Cube Bot"
+    ],
+    "attach_file": " ",
+    "attach_edms_id": " ",
+    "link_url": "",
+    "company_code": " ",
+    "lock_type": "CHECKOUT",
+    "view_search": "N",
+    "ispinned": "N",
+    "regcompany_code": "1000",
+    "rndata": {
+        "richnotification": {
+            "result": "",
+            "header": {
+                "from": "BOT001",
+                "to": {
+                    "uniquename": [
+                        "X0162810",
+                        "I0103388"
+                    ],
+                    "channelid": [
+                        "500230440"
+                    ]
+                },
+                "fromusername": [
+                    "Cube Bot",
+                    "Cube Bot",
+                    "Cube Bot",
+                    "Cube Bot",
+                    "Cube Bot"
+                ],
+                "token": ""
+            },
+            "displaymessage": [
+                "test Title",
+                "test Title",
+                "test Title",
+                "test Title",
+                "test Title"
+            ],
+            "content": [
+                {
+                    "body": {
+                        "bodystyle": "none",
+                        "row": [
+                            {
+                                "border": false,
+                                "width": "",
+                                "column": [
+                                    {
+                                        "border": false,
+                                        "bgcolor": "#ffffff",
+                                        "width": "100%",
+                                        "valign": "middle",
+                                        "control": {
+                                            "color": "#000000",
+                                            "active": true,
+                                            "text": [
+                                                "**Cube 홍보물 작업**",
+                                                "**Cube 홍보물 작업**",
+                                                "**Cube 홍보물 작업**",
+                                                "**Cube 홍보물 작업**",
+                                                "**Cube 홍보물 작업**"
+                                            ]
+                                        },
+                                        "align": "left",
+                                        "type": "label"
+                                    }
+                                ],
+                                "bgcolor": "#ffffff",
+                                "align": ""
+                            },
+                            {
+                                "border": false,
+                                "width": "",
+                                "column": [
+                                    {
+                                        "border": false,
+                                        "bgcolor": "#ffffff",
+                                        "width": "100%",
+                                        "valign": "middle",
+                                        "control": {
+                                            "active": true,
+                                            "text": [
+                                                "완료일",
+                                                "완료일",
+                                                "완료일",
+                                                "완료일",
+                                                "완료일"
+                                            ],
+                                            "processid": "CompleteDate",
+                                            "value": "2018/08/23"
+                                        },
+                                        "align": "left",
+                                        "type": "datepicker"
+                                    }
+                                ],
+                                "bgcolor": "#ffffff",
+                                "align": ""
+                            },
+                            {
+                                "border": false,
+                                "width": "",
+                                "column": [
+                                    {
+                                        "border": false,
+                                        "bgcolor": "#ffffff",
+                                        "width": "100%",
+                                        "valign": "middle",
+                                        "control": {
+                                            "active": true,
+                                            "item": [
+                                                {
+                                                    "value": "1",
+                                                    "selected": true,
+                                                    "text": [
+                                                        "10%",
+                                                        "10%",
+                                                        "10%",
+                                                        "10%",
+                                                        "10%"
+                                                    ]
+                                                },
+                                                {
+                                                    "value": "2",
+                                                    "selected": false,
+                                                    "text": [
+                                                        "20%",
+                                                        "20%",
+                                                        "20%",
+                                                        "20%",
+                                                        "20%"
+                                                    ]
+                                                },
+                                                {
+                                                    "value": "3",
+                                                    "selected": false,
+                                                    "text": [
+                                                        "30%",
+                                                        "30%",
+                                                        "30%",
+                                                        "30%",
+                                                        "30%"
+                                                    ]
+                                                }
+                                            ],
+                                            "text": [
+                                                "진척율",
+                                                "진척율",
+                                                "진척율",
+                                                "진척율",
+                                                "진척율"
+                                            ],
+                                            "processid": "ProgressRate"
+                                        },
+                                        "align": "left",
+                                        "type": "select"
+                                    }
+                                ],
+                                "bgcolor": "#ffffff",
+                                "align": ""
+                            },
+                            {
+                                "border": false,
+                                "width": "",
+                                "column": [
+                                    {
+                                        "border": false,
+                                        "bgcolor": "#ffffff",
+                                        "width": "100%",
+                                        "valign": "middle",
+                                        "control": {
+                                            "minlength": -1,
+                                            "processid": "Comment",
+                                            "maxlength": -1,
+                                            "width": "80%",
+                                            "active": true,
+                                            "text": [
+                                                "커멘트",
+                                                "커멘트",
+                                                "커멘트",
+                                                "커멘트",
+                                                "커멘트"
+                                            ],
+                                            "placeholder": [],
+                                            "validmsg": [],
+                                            "value": "",
+                                            "height": "5"
+                                        },
+                                        "align": "left",
+                                        "type": "textarea"
+                                    }
+                                ],
+                                "bgcolor": "#ffffff",
+                                "align": ""
+                            },
+                            {
+                                "border": false,
+                                "width": "",
+                                "column": [
+                                    {
+                                        "border": false,
+                                        "bgcolor": "#ffffff",
+                                        "width": "100%",
+                                        "valign": "middle",
+                                        "control": {
+                                            "clickurl": "",
+                                            "popupoption": "",
+                                            "textcolor": "",
+                                            "active": true,
+                                            "align": "center",
+                                            "inner": false,
+                                            "sso": false,
+                                            "bgcolor": "",
+                                            "processid": "SaveButton",
+                                            "confirmmsg": [],
+                                            "androidurl": "",
+                                            "text": [
+                                                "저장",
+                                                "저장",
+                                                "저장",
+                                                "저장",
+                                                "저장"
+                                            ],
+                                            "value": "0",
+                                            "iosurl": ""
+                                        },
+                                        "align": "center",
+                                        "type": "button"
+                                    }
+                                ],
+                                "bgcolor": "#ffffff",
+                                "align": ""
+                            }
+                        ]
+                    },
+                    "header": {},
+                    "process": {
+                        "callbacktype": "url",
+                        "processdata": "",
+                        "summary": [
+                            "",
+                            "",
+                            "",
+                            "",
+                            ""
+                        ],
+                        "session": {
+                            "sequence": "",
+                            "sessionid": "200003676"
+                        },
+                        "requestid": [
+                            "Sentence1",
+                            "Sentence2",
+                            "Sentence3",
+                            "cubeuniquename",
+                            "cubechannelid",
+                            "cubeaccountid"
+                        ],
+                        "callbackaddress": "http://10.158.122.138:9000/api/channel/action",
+                        "processtype": "",
+                        "mandatory": []
+                    }
+                }
+            ]
+        }
+    },
+    "address": "hynix.client.500230440",
+    "position_name": "　",
+    "dept_name": " ",
+    "message_id": "6250826085655692068",
+    "register_date": "2025/08/25 23:56:55",
+    "link_title": "",
+    "update_date": "2025/08/25 23:56:55",
+    "register_id": 20,
+    "alarm_yn": "N",
+    "position_name_m": [
+        "　",
+        "　",
+        "　",
+        "　",
+        "　"
+    ],
+    "link_oid": "0",
+    "attach_image": "",
+    "register_uniqueName": "BOT001",
+    "channel_id": 500230440,
+    "favorite_yn": "N",
+    "fontColor": "#000000",
+    "like_cnt": 0,
+    "status": null,
+    "reply_cnt": 0,
+    "node_id": -1
+}
