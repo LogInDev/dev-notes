@@ -1,0 +1,310 @@
+아래는 MessageBase → RichNotificationItem 내부 렌더링이 어떤 순서로, 무엇을 기준으로, 어떤 props/state/필드를 읽고, 어떤 DOM을 만들고, **사이드이펙트(ref 저장, 상태 갱신)**를 거쳐 최종 UI가 만들어지는지 함수별로 속까지 풀어쓴 설명이야.
+(코드 인용 없이, 실제 동작 흐름 그대로 설명)
+
+⸻
+
+4-1. renderExtra(): 진입점(무엇을 그릴지 결정)
+	1.	answer(기존 응답) 확보
+	•	this.answer가 비어 있으면 this.props.message.rnanswer를 다시 읽어와서 세팅.
+	•	rnanswer가 객체라도 키가 없으면 false 처리.
+→ 의미: “아직 응답 안 함”이면 사용자 입력 가능, 이미 응답했으면 입력을 비활성화하고 값 고정.
+	2.	템플릿 추출
+	•	this.richnotification에서 { header, content, result }를 뽑음.
+	•	header.to.uniquename를 this.toUniqueName에 저장(문자열 또는 문자열 배열).
+→ 이후 각 컨트롤에서 “이 메시지를 입력할 수 있는 대상인지” 판단할 때 사용.
+	3.	렌더 모드 결정
+	•	result === 'multireply'이면 봇 멀티 응답 모드로 판단하고,
+content 배열을 봇 카드용 렌더 함수 renderRichBot로 돌림.
+	•	상단에 “N개의 답이 있습니다” 문구 + “리스트 보기” 토글 버튼을 보여줌.
+	•	isShowBotList가 true면 renderRichBotList로 봇 요약 목록 표시(슬림스크롤 적용은 componentDidUpdate에서).
+	•	그 외에는 일반 카드 모드로 판단하고, content 배열을 renderRich로 순차 렌더.
+	4.	예외 처리
+	•	this.richnotification가 없거나 content 형식이 기대와 다르면 렌더 중단(false 반환).
+
+⸻
+
+4-2. renderRich(rich, idx): 한 개 “일반 카드” 렌더
+	1.	초기화
+	•	this.isBot = false로 명시(일반 카드이므로 입력 가능성 열어둠).
+	•	rich에서 { body, header } 분해.
+	•	this.richOptionData[idx]가 없다면 비어있는 객체로 push(컨트롤별 유효성/활성 메타를 쌓아둘 자리).
+	2.	to.uniquename 기억
+	•	header.to.uniquename가 존재하면 this.toUniqueName에 다시 반영.
+→ 카드마다 대상이 다를 수 있으니 가장 최근 카드의 타깃을 기억해둔다.
+	3.	행 구성
+	•	body.row 배열 길이를 확인해서 첫/마지막/중간 행에 맞는 **행 클래스(rowClass)**를 계산:
+	•	첫 행만 있으면 rowfirst rowlast
+	•	첫 행이면 rowfirst
+	•	마지막 행이면 rowlast
+	•	중간이면 rowmiddle
+	•	모든 컬럼이 label/hypertext만으로 이루어진 행이라면 richrowonlylable을 사용해 시각적으로 단순화.
+	4.	행 렌더
+	•	각 row를 renderRow(row, key, idx, rowClass)로 내려보내 실제 DOM 행을 만든다.
+	•	최종적으로 <div class="richbox"> 안에 모든 행을 쌓아 반환.
+
+⸻
+
+4-3. renderRow(row, key, idx, rowClass): 행 단위 스타일 · 칼럼 렌더
+	1.	행 스타일 집계(cssProps)
+	•	align(텍스트 정렬), bgcolor, border(true면 얇은 회색 라인), width 적용.
+	•	width 값이 %나 px가 아니면 %로 간주하여 붙인다(예: "50" → "50%").
+	2.	칼럼 렌더
+	•	row.column 배열을 순회하여 각 칼럼을 renderColumn(col, key, idx)로 내려보낸다.
+	3.	반환
+	•	<div class="richrow + rowClass" style={cssProps}> ...columns... </div> 구조 반환.
+
+⸻
+
+4-4. renderColumn(col, key, idx): 칼럼 레벨 스타일 · 컨트롤 호출
+	1.	칼럼 스타일 집계(cssProps)
+	•	align(텍스트 정렬), valign(vertical-align), bgcolor, border, width.
+	•	width는 행과 동일 로직(숫자면 %로 가정).
+	2.	컨트롤 호출
+	•	<span class="richcolumn" style={cssProps}> { renderControl(col, key, idx) } </span>
+	•	여기서 실질적인 입력 컴포넌트들이 만들어진다.
+
+⸻
+
+4-5. renderControl(col, key, idx): 컨트롤 핵심 (가장 내용이 많음)
+
+이 함수는 스타일/활성화/기본값/answer 반영/ref 바인딩까지 전부 처리하고,
+마지막에 type별 스위치로 실제 DOM을 만들어 반환한다.
+
+(A) 공통 준비
+	1.	분해
+	•	col.type과 col.control을 꺼낸다.
+	•	control에서 스타일/속성 후보들을 꺼냄: align, width, height, bgcolor, textcolor, placeholder, popupoption, active, maxlength, minlength, validmsg, processid, color …
+	2.	richOptionData(유효성/활성 메타) 세팅
+	•	processid가 있으면 this.richOptionData[idx][processid] = { active: active ?? true }.
+	•	minlength > 0이면 최소 글자 수와 다국어 검증 메시지(validmsg[languageType])를 세팅.
+	3.	CSS/속성 집계
+	•	cssProps에 정렬/폭/배경/텍스트색/일반 색(color) 등을 모두 반영.
+	•	itemProps = { style: cssProps, key }로 시작.
+	•	placeholder가 다국어 배열이면 itemProps.placeholder = placeholder[languageType].
+	•	maxlength가 양수면 문자열로 세팅(HTML 속성은 문자열 기대).
+	•	type이 button이면 itemProps.className = 'richbutton'.
+	•	control.text가 있으면 **레이블(label)**에 적용할 lCssProps = { style: { paddingRight: '10px' } }.
+	4.	answer(이미 응답함) 확인
+	•	this.answer?.result?.resultdata에서 현재 control.processid와 같은 requestid를 찾아 answer를 구함.
+	•	type !== 'button' && answer면 this.globalAnswer = answer 저장(버튼에 “이미 답했음” 표시로 쓰인다).
+	5.	입력 권한(활성화 여부) 결정
+	•	this.toUniqueName이 배열이면: 로그인 유니크네임이 포함되거나 'ALL' 포함이면 enabled, 아니면 disabled.
+	•	this.toUniqueName이 문자열이면: 로그인 유니크네임 또는 'ALL'이면 enabled, 아니면 disabled.
+	•	this.isBot === true면(봇 슬라이드 카드 렌더 중) 무조건 disabled.
+	•	answer가 존재하면 대부분 disabled하고 값/스타일만 보이게.
+	•	체크박스: innerProps.checked를 응답 값 포함 여부로 세팅
+	•	라디오: innerProps.checked = answer[0] === control.value
+	•	버튼: 응답 값과 같으면 className에 active
+	•	그 외 텍스트류: itemProps.defaultValue = answer[0]
+	•	active === false면 무조건 disabled.
+	6.	requestObj에 ref/값 바인딩 (답변 전 모드)
+	•	아직 answer가 없고 processid가 있으면, this.requestObj[idx][processid]에 ref 또는 DOM 그룹을 심는다.
+	•	체크박스/라디오:
+isMultySelect 플래그를 세팅하고, this.requestObj[idx][pid][value] = ref(labelDOM)을 저장.
+참고로 이 labelDOM에는 표시 텍스트(displaytext)도 함께 메모.
+	•	그 외 input/select/textarea: 그 엘리먼트 자체 ref 저장.
+	•	type === 'datepicker'/'datetimepicker'면 해당 idx의 id 목록에 processid 등록(문자열 | 합치기).
+	7.	링크 동작
+	•	control.linkurl 또는 control.clickurl이 있으면:
+	•	@invite:<uniquename> 패턴: 소켓 API로 해당 유니크네임 DM 채널 생성
+	•	그 외: window.open(url, popupName = message_id + '_popup', popupFeatures = popupoption)
+(type이 image면 커서 pointer)
+
+(B) 타입별 실제 DOM 생성 (switch)
+	1.	inputtext
+	•	<label>{text[languageType]}</label> + <input type="text" defaultValue={control.value} {...itemProps} />
+	•	maxlength/placeholder/width/color 등 앞서 조합된 itemProps가 그대로 적용.
+	2.	textarea
+	•	기본 width가 없으면 width: 400px.
+	•	height 값이 문자열이면 숫자만 추려서 rows로 사용(예: "5" → 5행). 기본 3행.
+	•	<label/> + <textarea defaultValue={control.value} {...itemProps} />
+	3.	radio/checkbox
+	•	그룹 name: {message_id}_{processid}, 개별 id: {name}_{value}.
+	•	실제 input은 label 내부에 배치:
+
+<label class="richradio|richcheckbox" {...itemProps}>
+  <input id={uniqueID} type={type} name={name} value={control.value} defaultChecked={control.checked} {...innerProps} />
+  <span class="checkmark"></span>
+  {text[languageType]}
+</label>
+
+answer가 있을 경우 innerProps.checked로 선택 상태 고정.
+
+	4.	button
+	•	<input type="button" value={text[languageType]} class="richbutton[ active]" ... />
+	•	클릭 시 this.confirmProcess(event, control, idx) 호출.
+주의: answer가 있으면 active 스타일만 반영하고 비활성.
+	5.	label
+	•	텍스트는 Markdown으로 파싱(this.renderMarkdown).
+	•	<span {...itemProps}>{(parsed markdown)}</span>
+	6.	select
+	•	control.item[]을 <option value=...>로 변환.
+	•	<label/> + <select {...itemProps}>{options}</select>
+	7.	image
+	•	src = control.sourceurl, 오류 시 기본 이미지(global.CONFIG.resource.image + '/rich/noimg.png').
+	•	height 문자열이 있으면 속성으로 직접 지정.
+	•	<img class="richimage" title={text[languageType]} .../>
+	8.	hypertext
+	•	기본 글자색이 없다면 파란색 #094c8f.
+	•	enabled면 <a {...itemProps}>{text}</a>, disabled면 그냥 텍스트만.
+	9.	datepicker
+	•	value 소스:
+	•	answer 모드: itemProps.defaultValue를 우선.
+	•	그 외: control.value(예: "2018/08/23").
+	•	표시/상태값은 this.getSelectedDate(processid, defaultDate, idx)로 가져옴:
+	•	state에 저장된 값이 있으면 그걸 사용,
+	•	아니면 moment(defaultDate)로 초기화. (answer가 없으면 requestObj[idx][pid] = defaultDate 문자열로도 기록)
+	•	변경 핸들러 this.onChangeDate(processid, idx):
+	•	state에 날짜(moment) 저장
+	•	문자열로 date.format(this.dateFormat)을 requestObj[idx][pid]에 저장
+	•	렌더:
+
+<label/>
+<DatePicker
+  dateFormat={this.dateFormat}
+  selected={...}
+  onChange={...}
+  {...itemProps} // disabled, style 등
+/>
+<a onClick={() => this.refs[uniqueID].onInputClick()}>
+  <i class="icon-calendar"/>
+</a>
+
+	10.	datetimepicker
+	•	날짜는 DatePicker, 시간은 TimePicker(rc-time-picker) 조합.
+	•	초기값:
+	•	datetime = moment(new Date(control.value))
+	•	date = moment(new Date(control.value)).format('YYYY/MM/DD')
+	•	answer 모드면 date를 defaultValue로 대체.
+	•	날짜 표시/상태는 getSelectedDateTime(processid, date, idx)로 가져오고, 변경은 onChangeDateTime(processid, idx):
+	•	state에 moment(time) 저장
+	•	문자열 YYYY/MM/DD h:mm a로 requestObj[idx][pid]에 저장
+	•	시간 표시/상태는 getSelectedTime(processid, datetime, idx)로 가져오고, 변경은 onChangeTime(processid, idx):
+	•	state에 moment(time) 저장
+	•	문자열 YYYY/MM/DD h:mm a로 requestObj[idx][pid]에 저장
+	•	렌더:
+
+<label/>
+<DatePicker ...selected={date} onChange={onChangeDateTime}/>
+<a onClick={() => this.refs[uniqueID_date].onInputClick()}><i class="icon-calendar"/></a>
+,<TimePicker disabled={itemProps.disabled} showSecond={false}
+             value={this.getSelectedTime(...)} onChange={this.onChangeTime(...)}
+             format={'h:mm a'} use12Hours />
+
+	11.	container
+	•	중첩 레이아웃. renderContainer(containeritem, key, idx)로 넘겨서 내부를 다시 행/열/컨트롤로 렌더.
+	12.	list
+	•	리스트형(페이지네이션 또는 슬라이드 캐러셀).
+	•	내부에서 renderList(control, key, idx)로 넘김.
+
+⸻
+
+4-6. renderList(control, key, idx): 리스트/페이지/캐러셀
+	1.	제목 처리
+	•	control.text가 있으면 text[languageType]으로 상단 제목 박스 출력.
+	2.	아이템 렌더 전략
+	•	listitem 중 하나라도 type === 'container'면 컨테이너 전용 캐러셀:
+	•	renderListContainer(listitem, key, idx, true) 호출
+→ 현재 select_idx 위치의 컨테이너를 renderControl로 렌더.
+	•	그 외에 pagesize가 유효하고 listitem.length >= pagesize면 페이지네이션:
+	•	총 페이지 수 계산 후 점(●) 페이지 버튼 출력.
+	•	현재 list_idx에 해당하는 범위의 아이템만 renderColumn으로 렌더.
+	•	둘 다 아니면 기본 캐러셀:
+	•	renderListContainer(listitem, key, idx, false) 호출
+→ 현재 select_idx 위치의 단일 아이템만 renderColumn으로 렌더.
+	3.	반환
+	•	<div class="richlist"> 안에 제목/아이템/페이지 버튼을 조합해 반환.
+
+⸻
+
+4-7. renderListContainer(listitem, key, idx, isContainer): 캐러셀 본체
+	1.	현재 인덱스
+	•	const _idx = this.state.select_idx.
+	2.	컨텐츠 결정
+	•	isContainer === true면 listitem[_idx]를 renderControl(...)로 렌더(컨테이너 정의 자체를 하나의 컨트롤로 취급).
+	•	false면 listitem[_idx]를 renderColumn(...)으로 렌더(단일 칼럼 아이템).
+	3.	좌/우 화살표
+	•	좌/우 끝에서는 richarrowdisabled 클래스로 비활성화.
+	•	클릭 시 select_idx를 ±1 증가/감소시켜 슬라이딩.
+	4.	반환
+	•	<div class="richlistcontainer"> 안에 좌/우 화살표 + 콘텐츠 박스 배치.
+
+⸻
+
+4-8. renderRichBot(rich, idx): 멀티 봇 카드(슬라이드 1장)
+	1.	대상/모드 세팅
+	•	this.isBot = true로 지정(봇 카드에서는 입력 컨트롤은 시연용 표시, 기본적으로 비활성)
+	•	header.to.uniquename에 현재 로그인 유저가 포함되어 있으면 이 카드에 active 표시(contentClassName = 'botcontent active')와 클릭 가능 플래그(isContentClick = true)를 세팅.
+	2.	프로필 헤더
+	•	상단에 봇 프로필 이미지를 그린다(회사별 프로필 URL 템플릿을 사용해 이미지 경로 구성).
+	•	봇 이름은 header.fromusername[languageType] 또는 header.from.
+	3.	본문 행·열 렌더
+	•	body.row를 renderRowBot으로 내려서 그린다.
+	•	renderRowBot은 renderRow와 동일하지만 봇 카드 전용 클래스(first/middle/last)로 감싼다.
+	•	내부 칼럼은 결국 renderColumn을 타는데, this.isBot === true이므로 컨트롤은 disabled로 그려진다.
+	4.	좌/우 캐러셀
+	•	외곽에 좌/우 화살표 배치, select_idx를 움직인다(다른 봇 카드로 이동).
+	5.	카드 클릭 → botProcess
+	•	카드 컨텐츠 영역을 클릭하면, isContentClick === true일 때만 botProcess 호출.
+	•	이때 결과는 비어 있지만, process.processmulti = 'Y'를 붙여 “이 봇 카드 선택됨”을 서버에 알리는 트리거로 쓴다.
+
+⸻
+
+4-9. renderRichBotList(content, rootHeaderFrom): 봇 목록(요약 리스트)
+	1.	목록 데이터 구성
+	•	각 봇 카드의 header.from 표시명(가능하면 fromusername[languageType]),
+process.summary[languageType]를 pre 포맷으로 출력.
+	2.	아이템 클릭
+	•	클릭 시 select_idx를 해당 인덱스로 바꾸고, 리스트를 닫아 상세 카드로 돌아간다.
+	3.	컨테이너
+	•	.botlist → .botlistinner 구조.
+componentDidUpdate에서 isShowBotList가 true일 때 슬림스크롤을 초기화한다.
+
+⸻
+
+4-10. renderWebMeta() / renderWebMetaItem(result): 링크 미리보기
+	1.	데이터 소스
+	•	현재 메시지(message.og)와 글로벌 스토어(Store.getMessages().og) 중에서
+이 메시지의 message_id와 매칭되는 오픈그래프 결과들을 모은다.
+	2.	아이템 렌더
+	•	renderWebMetaItem은 <a class="webmeta" href=... target="_blank"> 내부에
+썸네일 이미지(실패 시 숨김), 제목, 설명을 박스 형태로 배치한다.
+	3.	최종 반환
+	•	두 소스 결과를 합쳐 배열로 반환(상위에서 그대로 출력).
+
+⸻
+
+4-11. 입력값 유지 & 상태 갱신 훅들(날짜/시간)
+
+이들은 renderControl 내 Date/DateTime 타입에서 호출됨
+
+	•	getSelectedDate(processid, defaultDate, idx)
+	•	state에 {[idx+'_'+pid]: moment}가 있으면 그걸 쓰고, 없으면 moment(defaultDate) 반환.
+	•	answer가 없는 초기엔 requestObj[idx][pid] = defaultDate(문자열)로도 저장.
+	•	onChangeDate(processid, idx)
+	•	반환된 핸들러가 호출되면 state[idx+'_'+pid] = date(moment)로 세팅하고,
+	•	requestObj[idx][pid] = date.format(this.dateFormat)(문자열)로 저장.
+	•	getSelectedDateTime(processid, defaultDate(문자열), idx)
+	•	state에 값이 있으면 그걸, 없으면 moment(defaultDate) 반환.
+	•	answer가 없을 땐 requestObj[idx][pid] = 'YYYY/MM/DD h:mm a' 포맷 문자열로 초기화.
+	•	onChangeDateTime(processid, idx)
+	•	선택된 날짜를 state에 저장하고,
+	•	문자열 'YYYY/MM/DD h:mm a'로 requestObj[idx][pid]에 기록.
+	•	getSelectedTime(processid, datetime(moment), idx)
+	•	state에 값이 있으면 그대로 반환.
+	•	answer가 없으면 datetime의 시/분을 유지해 requestObj[idx][pid]에 'YYYY/MM/DD h:mm a'로 저장하고 moment 반환.
+	•	answer가 있으면 answer의 시간 문자열을 moment로 감싸 반환.
+	•	onChangeTime(processid, idx)
+	•	시간 선택 시 state와 requestObj[idx][pid]를 모두 업데이트(문자열 포맷은 동일).
+
+⸻
+
+4-12. 전송 트리거(confirmProcess)로 이어지는 연결
+	•	button 타입의 클릭에서 confirmProcess(event, control, idx) 호출.
+	•	여기서 requestObj[idx]에 모든 컨트롤 값이 이미 (ref 또는 문자열로) 준비되어 있다는 전제.
+	•	필수값/최소길이 검증 → resultdata 조립 → 헤더 병합 → 소켓 API 호출 → 성공 시 rnanswer를 메시지에 반영하여 다음 렌더부터는 answer 모드로 전환됨.
+
+
+
+
+
