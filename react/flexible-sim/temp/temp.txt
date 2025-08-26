@@ -1,0 +1,285 @@
+대상: React 16.14(Class) 기반 “AI 챗봇 메시지” 컴포넌트
+파일: RichNotificationItem.jsx — MessageBase 상속, renderExtra()부터 실제 렌더링 시작
+입력 샘플: 사용자가 제공한 this.props.message (아래 “샘플 메시지 매핑” 참조)
+
+⸻
+
+1) 컴포넌트 목적 & 역할
+	•	리치 노티피케이션 메시지를 템플릿(JSON) 기반으로 동적 렌더링하고,
+사용자의 입력(날짜, 텍스트, 라디오/체크박스/셀렉트, 버튼 등)을 수집해
+서버(봇)로 응답을 전송하는 UI 컴포넌트.
+	•	MessageBase를 상속. 상위 render()에서 이 컴포넌트의 renderExtra()를 호출해 실제 콘텐츠를 그림.
+	•	Redux + Socket 연동: 응답 전송 후 rnanswer(답변) 상태를 메시지 객체에 반영(Lock/Disable)하여 중복 입력 방지.
+
+⸻
+
+2) 주요 인스턴스/상태(state) 구조
+
+인스턴스 필드
+	•	requestObj: any[]
+	•	핵심 수집 버킷. 콘텐츠 index별로, 각 processid에 대응하는 DOM ref 또는 값(string) 또는 체크박스/라디오 묶음 레퍼런스 구조를 저장.
+	•	confirmProcess()에서 이 버킷을 순회해 최종 resultdata를 만든다.
+	•	richOptionData: any[]
+	•	컨트롤별 유효성(예: minlength, validmsg, 활성/비활성 등) 메타 저장.
+	•	answer: false | {result: {resultdata: …}}
+	•	이미 응답한 메시지의 정답/선택값. 존재 시 컨트롤들을 disable하거나 기본값으로 렌더.
+	•	languageType: number
+	•	다국어 배열 인덱스(global.CONFIG.languageType - 1).
+	•	dateFormat = 'YYYY/MM/DD'
+	•	react-datepicker의 날짜 포맷.
+	•	toUniqueName
+	•	header.to.uniquename를 보관. 현재 로그인 유저가 대상이 아닐 경우 컨트롤 disable.
+	•	isBot
+	•	Bot 멀티 응답 UI 렌더 중인지 여부(상세는 renderRichBot).
+	•	datepickerid / datetimepickerid: Record<number, string>
+	•	콘텐츠 index별 date/datetime processid 모음(문자열 | 연결).
+
+state
+
+{
+  register_name, position_name, dept_name,
+  select_idx: 0,      // 리스트/봇 뷰 좌우 이동 인덱스
+  isShowBotList: false,
+  list_idx: 0,        // list pager 인덱스
+  // 동적키: `${idx}_${processid}` → Date/TimePicker 선택값 저장
+}
+
+
+3) 입력(JSON) → UI 매핑 (샘플 메시지 기준)
+
+샘플 메시지에서 실제로 쓰는 필드
+	•	message.message_id, message.channel_id
+	•	message.register_name(_m), position_name(_m), dept_name(_m) (상단 프로필 라벨)
+	•	message.rndata.richnotification ← 핵심 템플릿
+	•	header.from, header.to.uniquename: string | string[]
+	•	displaymessage(표시 문구)
+	•	content[]: 렌더 대상
+	•	각 item: { header, body, process }
+	•	body.row[].column[] 아래에 type, control{...} 정의
+	•	process.requestid[]: 응답 시 반드시 포함할 키 목록
+	•	process.callbacktype/callbackaddress: 콜백 전송 설정
+
+샘플 content 분석 (단일 카드)
+	•	label: “Cube 홍보물 작업”
+	•	datepicker (processid: CompleteDate, value: "2018/08/23")
+	•	select (processid: ProgressRate, items: 10/20/30%)
+	•	textarea (processid: Comment)
+	•	button (processid: SaveButton, text: “저장”, value: “0”)
+	•	process.requestid: Sentence1, Sentence2, Sentence3, cubeuniquename, cubechannelid, cubeaccountid
+	•	이 중 cube* 3개는 공통 ID로 자동 채움(아래 “constructor 수집 로직”)
+
+결론: 이 메시지는 폼 입력 + 저장 버튼으로 구성된 단일 응답 카드.
+
+⸻
+
+4) 렌더링 파이프라인 (상위 → 하위)
+	1.	renderExtra()
+	•	this.richnotification 존재 여부 확인.
+	•	result === 'multireply' 면: 봇 카드 캐러셀 UI (renderRichBot + renderRichBotList)
+	•	그렇지 않으면: content[]를 순회하며 일반 카드(renderRich) 렌더
+	2.	renderRich(rich, idx)
+	•	rich.body.row[]를 순회하여 renderRow 호출
+	•	첫/마지막 row에 class rowfirst/rowlast 부여
+	•	행이 모두 label/hypertext 뿐이면 richrowonlylable 적용
+	3.	renderRow(row, key, idx, rowClass)
+	•	정렬/배경/보더/width 등의 스타일 props 취합
+	•	row.column[] 각각을 renderColumn으로 렌더
+	4.	renderColumn(col, key, idx)
+	•	정렬/width/배경/보더/세로정렬 등 스타일
+	•	핵심: renderControl(col, key, idx) 호출
+	5.	renderControl(col, key, idx) (컨트롤 스위치)
+	•	공통 스타일/속성 계산(align, width, bgcolor, textcolor, maxlength, placeholder 등)
+	•	processid가 있으면 richOptionData[idx][processid] 초기화 및 유효성 세팅
+	•	answer / isBot / toUniqueName / active 상태에 따라 disable/기본값/checked 처리
+	•	switch(type)로 실제 DOM 구성:
+	•	inputtext, textarea, radio, checkbox, button, label, select, image, hypertext, datepicker, datetimepicker, container, list
+	6.	리스트/봇 UI
+	•	renderList() / renderListContainer()
+페이징·좌우 이동 지원
+	•	renderRichBot() / renderRowBot() / renderRichBotList()
+멀티 봇 응답 슬라이드 & 목록
+	7.	웹 메타 (URL 미리보기)
+	•	renderWebMeta() / renderWebMetaItem()
+
+⸻
+
+5) 입력 수집 & 전송 플로우
+
+A. 컨트롤 값 수집 방식
+	•	일반 입력(input/select/textarea/datepicker 등):
+renderControl()에서 해당 DOM ref 또는 값을 requestObj[idx][processid]에 저장.
+	•	라디오/체크박스:
+requestObj[idx][processid]를 객체로 만들고, 각 값(value)별로 label DOM을 보관 (.firstElementChild가 실제 input)
+	•	공통 ID(cubeuniquename / cubechannelid / …):
+constructor에서 process.requestid[]를 보고 미리 requestObj[idx]에 문자열 값으로 세팅
+
+B. 버튼 클릭 → confirmProcess(event, control, idx)
+	1.	현재 버튼의 processid에 value를 강제 세팅 (버튼 자체 선택값)
+	2.	datepickerid/datetimepickerid 그룹을 분해(해당 키의 텍스트 처리 구분용)
+	3.	requestObj[idx]를 모두 순회하여 requestValue/requestText를 구성
+	•	DOM Element면 .value / .selectedOptions[0].innerText
+	•	체크박스: 체크된 value/text 배열
+	•	라디오: 체크된 하나의 value/text
+	•	기타(문자열 또는 used===true): 문자열 그대로 value, text는 버튼 텍스트 혹은 date/time 값
+	4.	richOptionData의 minlength/active로 유효성 검사. 실패 시 alert()
+	5.	confirmmsg가 있으면 사용자 확인
+	6.	resultdata 배열을 조립:
+
+[
+  {"requestid":"CompleteDate","value":["2018/08/23"],"text":["2018/08/23"]},
+  {"requestid":"ProgressRate","value":["1"],"text":["10%"]},
+  {"requestid":"Comment","value":[""],"text":["커멘트"]},
+  {"requestid":"SaveButton","value":["0"],"text":["저장"]},
+  {"requestid":"cubeuniquename","value":["<로그인 유니크네임>"],"text":["저장"]},
+  {"requestid":"cubechannelid","value":["500230440"],"text":["저장"]},
+  {"requestid":"cubeaccountid","value":["<로그인 accountId>"],"text":["저장"]}
+]
+
+※ Sentence1/2/3은 컨트롤 바인딩이 없어 값이 없으면 결과에서 빠질 수 있음(하단 개선안 참조)
+
+	7.	헤더 구성: child header가 있으면 우선, 없으면 root header
+	8.	전송 페이로드
+
+const msg = {
+  header: {
+    from: {
+      username: profile.nameLang,
+      uniquename: login.uniquename,
+      channelid: message.channel_id,
+      messageid: message.message_id,
+      companycode: profile.companyCode,
+    },
+    to: tempHeader.from, // 봇 쪽
+  },
+  result: { resultdata },
+  // process: (쓰이는 경우) callbackaddress 등
+};
+const ret = { richnotificationmessage: msg };
+
+
+	9.	버튼 주변 동일 group 버튼 모두 disabled
+	10.	Socket.getApi().apiRichNotificationResponse(ret) 호출 → 성공 시
+	•	Actions.updateMessage(message_id, 'rnanswer', { result: msg.result }) 디스패치
+	•	이후 이 메시지는 answer모드로 렌더되어 입력 비활성화/값 고정
+
+C. 멀티 봇 (botProcess)
+	•	isContentClick(현재 사용자 대상일 때만 true)이면 빈 resultdata로, processmulti='Y'를 붙여 봇에 후속 처리 요청 전송.
+
+⸻
+
+6) 조건 분기( if/switch ) 상세 정리
+
+6.1 renderExtra()
+	•	if (!this.answer) → props로부터 rnanswer 재평가 (빈 객체면 false)
+	•	if (result === 'multireply') → renderRichBot로 슬라이드형 UI
+	•	else if (content instanceof Array) → 일반 renderRich 반복
+	•	fallback: 렌더 생략(형식 불일치 시)
+
+6.2 권한/활성화 분기 (핵심)
+	•	대상 사용자(header.to.uniquename)
+	•	Array: 로그인 유저가 포함되면 enabled, 아니면 disabled
+	•	String: 로그인 유저 또는 'ALL'이면 enabled
+	•	(버그) instanceof String 사용 → 원시 문자열에서는 동작 안 함(개선안 참조)
+	•	봇 슬라이드 모드(this.isBot)면 항상 disabled
+	•	answer 존재(이미 응답함)
+	•	대부분 disabled
+	•	radio/checkbox: innerProps.checked에 응답 반영
+	•	button: 응답 값과 같으면 active 스타일
+	•	text/textarea/select: defaultValue로 값 고정
+	•	active === false: 무조건 disabled
+	•	linkurl/clickurl:
+	•	@invite: prefix면 DM 채널 생성
+	•	그 외 window.open(url, ...) 새창
+
+6.3 renderControl의 타입별 (switch)
+	•	inputtext: 라벨 + 텍스트 입력
+	•	textarea: 라벨 + 텍스트영역(기본 rows 3, height로 rows 지정)
+	•	radio / checkbox:
+	•	name: {message_id}_{processid}
+	•	uniqueID: name + value
+	•	레이블 내부 input + span.checkmark
+	•	button: 클릭 → confirmProcess 호출
+	•	answer와 일치 시 active 스타일
+	•	label: renderMarkdown(innerText) 지원
+	•	select: option[]생성 (선택값 defaultValue 처리)
+	•	image: control.sourceurl 표시, 오류 시 디폴트 이미지
+	•	hypertext: 링크, 비활성 시 텍스트만
+	•	datepicker: react-datepicker + 달력 아이콘 클릭 시 .refs[uniqueID].onInputClick()
+	•	값은 상태나 answer 기반
+	•	datetimepicker: react-datepicker + rc-time-picker 결합
+	•	container: 중첩 행 구성 (renderContainer)
+	•	list: 페이징/슬라이드 리스트 (renderList, renderListContainer)
+
+6.4 검증/필수 입력
+	•	richOptionData[idx][processid].minlength > 0 & active
+→ confirmProcess에서 문자열 길이 미달 시 alert()
+	•	process.mandatory[]
+→ 활성된 컨트롤 중 값이 비어 있으면 alert() 후 중단
+
+6.5 헤더 병합
+	•	child content의 header가 비어있지 않으면 그걸 우선 사용
+(봇별 라우팅/식별에 활용 가능)
+
+⸻
+
+7) 샘플 메시지 실제 동작 흐름 (UX 시나리오)
+	1.	사용자(로그인 uniquename)가 header.to.uniquename 배열에 포함되어 있으면 입력 가능
+	•	그렇지 않으면 모든 컨트롤 disabled
+	2.	초기 표시
+	•	라벨: “Cube 홍보물 작업”
+	•	날짜: 기본 “2018/08/23”
+	•	진척율: 기본 “10%”
+	•	커멘트: 빈값
+	•	저장 버튼
+	3.	사용자가 날짜/진척율/커멘트 입력 후 저장 클릭
+	4.	confirmProcess가 값 수집:
+	•	CompleteDate, ProgressRate, Comment, SaveButton
+	•		•	constructor에서 세팅한 cubeuniquename, cubechannelid, cubeaccountid
+	•	(참고) Sentence1/2/3은 해당 processid를 가진 컨트롤이 없으므로 값 없음
+	5.	Socket.getApi().apiRichNotificationResponse 전송 성공 →
+Actions.updateMessage(message_id, 'rnanswer', {result}) 디스패치
+	6.	같은 메시지 재렌더 시 answer 모드 → 컨트롤 비활성/값 고정
+
+⸻
+
+8) 성능 & 안정성 포인트
+	•	DOM ref에 의존하는 수집 방식:
+	•	React class 시절 패턴으론 흔하지만, 유지보수/테스트가 어렵다.
+	•	가능한 일부 컨트롤은 “controlled”로 전환하면 상태 동기화가 쉬워진다.
+	•	언어/텍스트 접근:
+	•	대부분 array[languageType] || array[0] 안전 처리되어 있음.
+	•	불필요 재생성:
+	•	renderControl에서 this.datepickerid = {}; this.datetimepickerid = {};
+→ 매 호출 시 리셋 가능성. 생성자/마운트로 이동 권장.
+	•	슬림스크롤 초기화:
+	•	componentDidUpdate에서 isShowBotList일 때마다 init
+→ 기존 인스턴스 dispose 없는 경우 중복 바인딩 위험.
+(custom util의 destroy()가 있다면 호출 필요)
+
+⸻
+
+9) 잠재 버그 & 즉시 개선안 (핵심 위주)
+	1.	문자열 타입 체크
+	•	현재: this.toUniqueName instanceof String
+	•	개선: typeof this.toUniqueName === 'string'
+
+
+if (Array.isArray(this.toUniqueName)) { ... }
+else if (typeof this.toUniqueName === 'string') { ... }
+
+
+15) 결론 (보고용 한 줄 요약)
+
+RichNotificationItem은 리치 노티피케이션 템플릿을 동적 렌더링하고, 유효성 검증을 거친 사용자 응답을 서버로 안전하게 전송하는 핵심 컴포넌트입니다. 현재 구조는 실무 투입에 적합하며, **소규모 패치(문자열 타입 체크, TimePicker props, datepicker id 초기화, requestid 보정 등)**만 반영하면 안정성과 유지보수성이 크게 향상됩니다.
+
+
+
+
+
+
+
+
+
+
+
+
