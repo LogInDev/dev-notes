@@ -4,7 +4,6 @@ import { setAIQueryId, clickDetailTabItem } from '../../../actions/index';
 import NewWindow from 'react-new-window';
 import { Provider } from 'react-redux';
 import store from '../../../index.js'
-import AIView from '../chat/AIView'
 import AIViewPopup from '../../popup/AIViewPopup'
 import slimscroll from 'slimscroll';
 
@@ -116,14 +115,20 @@ class AIThreadList extends Component {
   openAIPopup=(e)=>{
     e.preventDefault();
 
-    // const { popupWindow } = this.state;
-    // if(popupWindow && !popupWindow.closed) {
-    //   popupWindow.focus();
-    //   return;
-    // }
-    const id = e.currentTarget.dataset.id;
-    this.props.setAIQueryId(id);
+    const id = String(e.currentTarget.dataset.id);
 
+    // 이미 열려있으면 포커스
+    const win = this.state.popupWindow[id];
+    if (win && !win.closed) {
+      try { 
+        win.focus(); 
+      } catch(e) {
+        console.error('openAIPopup --------------', e.message)
+      }
+      return;
+    }
+
+    this.props.setAIQueryId(id);
     this.setState((s) => ({
       openPopups: s.openPopups.indexOf(id) >= 0 ? s.openPopups : [...s.openPopups, id],
       currentId: id
@@ -131,7 +136,24 @@ class AIThreadList extends Component {
   }
 
   closePopup = (id) => {
-    this.setState((s) => ({ openPopups: s.openPopups.filter((x) => x !== id) }));
+    this.setState((s) => {
+      // window 닫기 시도
+      const win = s.popupWindow[id];
+      if (win && !win.closed) {
+        try { 
+          win.close(); 
+        } catch(e) {
+          console.error('closePopup---------', e.message)
+        }
+      }
+      // 상태 정리
+      const nextMap = { ...s.popupWindow };
+      delete nextMap[id];
+      return {
+        popupWindow: nextMap,
+        openPopups: s.openPopups.filter((x) => x !== id),
+      };
+    });
   };
 
   getPopupFeatures = (index) => {
@@ -148,37 +170,35 @@ class AIThreadList extends Component {
     };
   };
 
-  handleOpen = (win) => {
-    const {currentId} = this.state;
-    console.log('win---', win)
-    console.log('currentId ----', currentId)
-    const newState = {...this.state}
-    newState.popupWindow[currentId] = win; 
-    console.log('newState ----', newState)
-    this.setState(newState, ()=>{
-      try{
-          const doc = win.document;
-          const style = doc.createElement('style')
-          style.textContent = `
-            html, body { height: 100%; margins: 0; }
-            #root, #app { height: 100%; }
-          `
-          doc.head.appendChild(style);
-      } catch(e){
-        console.error('팝업 스크롤 생성 실패 - ', e.message);
+  handleOpen = (id, win) => {
+    console.log('')
+    this.setState((s) => ({
+      popupWindow: { ...s.popupWindow, [id]: win },
+    }), () => {
+      try {
+        const doc = win.document;
+        const style = doc.createElement('style');
+        style.textContent = `
+          html, body { height: 100%; margin: 0; }
+          #root, #app { height: 100%; }
+        `;
+        doc.head.appendChild(style);
+      } catch (e) {
+        console.error('팝업 스타일 주입 실패:', e.message);
       }
-    })
+    });
   };
 
 
   handlePopupUnload = (id) =>{
-    // const newState = {...this.state}
-    // const {id, ...restOfWindows} = newState.popupWindow
-    // console.log('restOfWindows=========', restOfWindows)
-    // this.setState((prevState ) => ({ 
-      // popupWindow : restOfWindows,
-      // openPopups : prevState.openPopups.filter((x) => x !== id)
-    // }));
+    this.setState((s) => {
+      const nextMap = { ...s.popupWindow };
+      delete nextMap[id];
+      return {
+        popupWindow: nextMap,
+        openPopups: s.openPopups.filter((x) => x !== id),
+      };
+    });
   }
 
   render() {
@@ -214,8 +234,8 @@ class AIThreadList extends Component {
             key={id}
             title={`AI Assistant #${id}`}
             features={this.getPopupFeatures(i)}
-            onUnload={this.handlePopupUnload(id)}
-            onOpen={this.handleOpen}
+            onUnload={() => this.handlePopupUnload(id)}
+            onOpen={(win) => this.handleOpen(id, win)}  
           >
             <Provider store={store}>
               <AIViewPopup 
