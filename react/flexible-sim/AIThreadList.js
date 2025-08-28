@@ -1,20 +1,23 @@
-// AIThreadList.jsx
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
-import { openAIPanel, clickDetailTabItem } from '../../../actions';
+import { setAIQueryId, clickDetailTabItem } from '../../../actions/index';
 import NewWindow from 'react-new-window';
 import { Provider } from 'react-redux';
-import store from '../../../store'; // store는 별도 모듈에서 export
-import AIViewPopup from '../../popup/AIViewPopup';
+import store from '../../../index.js'
+import AIView from '../chat/AIView'
+import AIViewPopup from '../../popup/AIViewPopup'
 import slimscroll from 'slimscroll';
 
 class AIThreadList extends Component {
   constructor(props) {
     super(props);
+
     this.state = {
-      currentId: '0',
-      openPopups: [], // ['3','7', ...]  ← 동시에 여러 개 관리
-    };
+      openPopups : [],
+      currentId : '0',
+      nextNum : 0,
+      popupWin: null
+    }
 
     this.loadMore = this.loadMore.bind(this);
     this.onSlimscroll = this.onSlimscroll.bind(this);
@@ -25,27 +28,35 @@ class AIThreadList extends Component {
     this.listEl = null;
     this.slimscroll = null;
 
-    this.popWidth = 900;
     this.popHeight = 700;
+    this.popWidth = 900;
+    
   }
-
-  componentDidMount() {
+ 
+  componentDidMount(){
     this.listEl = document.getElementById(this.listId);
-    if (this.listEl) this.listEl.addEventListener('slimscroll', this.onSlimscroll);
+    if (this.listEl) {
+      this.listEl.addEventListener('slimscroll', this.onSlimscroll);
+    }
     this.initScroll();
   }
 
   componentWillUnmount() {
-    if (this.listEl) this.listEl.removeEventListener('slimscroll', this.onSlimscroll);
-    this.listEl = null;
+    if (this.listEl) {
+      this.listEl.removeEventListener('slimscroll', this.onSlimscroll);
+      this.listEl = null;
+    }
     this.destroySlimscroll();
   }
 
   componentDidUpdate(prevProps) {
-    if (prevProps.dmusers?.searchtext !== this.props.dmusers?.searchtext) {
+    if (prevProps.dmusers 
+      && (prevProps.dmusers.searchtext !== 
+          (this.props.dmusers && this.props.dmusers.searchtext))) {
       this.scrollTop = 0;
       this.isUpdate = true;
     }
+
     if (this.isUpdate) {
       this.initScroll();
       this.isUpdate = false;
@@ -54,62 +65,75 @@ class AIThreadList extends Component {
 
   initScroll() {
     this.destroySlimscroll();
+
     const target = document.getElementById(this.listId);
     if (!target) return;
 
-    // 사용 중인 slimscroll 패키지에 맞춰 옵션 키 조정 필요
     this.slimscroll = new slimscroll({
-      idSelector: '#aithread',
-      height: 400,
+      idSelector : '#aithread',             
+      height: '100%',      
       scrollTo: this.scrollTop,
+      // allowPageScroll: false,
     });
-    if (typeof this.slimscroll.init === 'function') this.slimscroll.init();
+
+    if (typeof this.slimscroll.init === 'function') {
+      this.slimscroll.init();
+    }
   }
 
   destroySlimscroll() {
     if (!this.slimscroll) return;
-    if (typeof this.slimscroll.destroy === 'function') this.slimscroll.destroy();
-    else if (typeof this.slimscroll.teardown === 'function') this.slimscroll.teardown();
+    if (typeof this.slimscroll.destroy === 'function') {
+      this.slimscroll.destroy();
+    } else if (typeof this.slimscroll.teardown === 'function') {
+      this.slimscroll.teardown();
+    }
     this.slimscroll = null;
   }
 
   onSlimscroll(e) {
-    this.scrollTop = e.target?.scrollTop || 0;
+    this.scrollTop = (e.target && e.target.scrollTop) ;
+
+    console.log('scrollTop--------------', this.scrollTop)
+    // 필요 조건에 맞게 트리거 (예: 끝에 가까울 때만 등)
+    if (this.scrollTop > 224) this.loadMore(10);
   }
 
   loadMore(listcount) {
+    console.log('--------AI THREAD 리스트 업데이트------------')
+    this.setState({nextNum:listcount})
     this.isUpdate = true;
   }
 
-  // 리스트 항목 클릭 → 현재 선택만 변경
-  openAIView = (e) => {
+  openAIView=(e)=>{
     this.props.clickDetailTabItem('aiview');
+    
     const id = e.currentTarget.dataset.id;
+    this.props.setAIQueryId(id);
     this.setState({ currentId: id });
-  };
-
-  // 우클릭 → 해당 li의 팝업 추가 (동시에 여러 개)
-  openAIPopup = (e) => {
+  }
+ 
+  openAIPopup=(e)=>{
     e.preventDefault();
+
+    const { popupWindow } = this.state;
+    if(popupWindow && !popupWindow.closed) {
+      popupWindow.focus();
+      return;
+    }
     const id = e.currentTarget.dataset.id;
+    this.props.setAIQueryId(id);
 
-    // 이미 열려 있으면 중복 추가하지 않음
-    this.setState((s) =>
-      s.openPopups.indexOf(id) >= 0 ? s : { openPopups: [...s.openPopups, id] }
-    );
-  };
+    this.setState((s) => ({
+      openPopups: s.openPopups.indexOf(id) >= 0 ? s.openPopups : [...s.openPopups, id],
+      currentId: id
+    }));
+  }
 
-  // 특정 팝업 닫기
   closePopup = (id) => {
     this.setState((s) => ({ openPopups: s.openPopups.filter((x) => x !== id) }));
   };
 
-  // 모든 팝업 닫기 (옵션)
-  closeAllPopups = () => {
-    this.setState({ openPopups: [] });
-  };
-
-  // 창이 겹치지 않게 살짝씩 어프셋 주기 (옵션)
   getPopupFeatures = (index) => {
     const baseLeft = 120;
     const baseTop = 80;
@@ -119,70 +143,84 @@ class AIThreadList extends Component {
       height: this.popHeight,
       left: baseLeft + index * step,
       top: baseTop + index * step,
+      menubar: 'no', 
+      toolbar: 'no'
     };
   };
 
+  handleOpen = (win) => {
+    this.setState({ popupWin: win }, ()=>{
+      try{
+          const doc = win.document;
+          const style = doc.createElement('style')
+          style.textContent = `
+            html, body { height: 100%; margins: 0; }
+            #root, #app { height: 100%; }
+          `
+          doc.head.appendChild(style);
+      } catch(e){
+        console.error('팝업 스크롤 생성 실패 - ', e.message);
+      }
+    });
+  };
+
+
+  handlePopupUnload = () =>{
+    this.setState({popupWindow: null, popon: false, open: false});
+  }
+
   render() {
-    const { currentId, openPopups } = this.state;
-    const arr = Array.from({ length: 10 }, (_, i) => i + 1);
-
+    const { openPopups, currentId, nextNum, popupWin } = this.state
+    const arr = Array.from({length:10}, (_,i) => (i * nextNum)+1);
     return (
-      <div>
-        <div style={{ marginBottom: 8 }}>
-          <button onClick={this.closeAllPopups} disabled={openPopups.length === 0}>
-            모든 팝업 닫기
-          </button>
-        </div>
-
-        <ul
-          className="list2"
-          id={this.listId}
-          style={{ overflow: 'auto', height: 400 }}
-        >
-          {arr.map((_, idx) => (
-            <li
-              key={idx}
-              data-id={idx}                         {/* ✅ 각 li에 data-id 부여 */}
-              onClick={this.openAIView}
-              onContextMenu={this.openAIPopup}      {/* 우클릭으로 팝업 */}
-            >
-              <div className="con">
-                <div className="arrow_box">channelName</div>
-                <a className={currentId === String(idx) ? 'on' : ''} title="channelName">
-                  <span>channelName - {idx}</span>
-                  <span>data.last_message</span>
-                </a>
-              </div>
-
-              <div className="etc">
-                <span className="dm_alarm">alarmSettingClass</span>
-                <span className="ppnum"><i className="fa fa-user" /></span>
-                <span>99+</span>
-              </div>
-            </li>
-          ))}
+      <div style={{height:'calc(100% - 30px)'}}>
+        <ul className="list2" id='aithread'>
+          {arr.map((_, idx) => {
+              return (
+                <li data-id={idx} key={idx}
+                  onClick={this.openAIView}
+                  onContextMenu={this.openAIPopup}  
+                >
+                  <div className="con">
+                    <div className="arrow_box">channelName</div>
+                      <a 
+                        className={currentId === String(idx) ? 'on' : ''} title='channelName' 
+                      >
+                        <span>channelName - {idx}</span>
+                        <span>data.last_message</span>
+                      </a>
+                  </div>
+                </li>
+              )})
+          }
         </ul>
 
-        {/* ✅ 여러 팝업 동시 렌더: openPopups 배열을 map */}
+        {/* 리스트 우클릭 시 팝업 생성 */}
         {openPopups.map((id, i) => (
           <NewWindow
+            copyStyles
             key={id}
-            title={`AI POPUP #${id}`}
+            title={`AI Assistant #${id}`}
             features={this.getPopupFeatures(i)}
-            onUnload={() => this.closePopup(id)}
+            // onUnload={() => this.closePopup(id)}
+            onUnload={this.handlePopupUnload}
+            onOpen={this.handleOpen}
           >
             <Provider store={store}>
-              <AIViewPopup
-                onClose={() => this.closePopup(id)}
-                currentId={id}                {/* ← 팝업마다 고유 id 전달 */}
+              <AIViewPopup 
+                onClose={() => this.closePopup(id)} 
+                popupWindow={popupWin}
                 height={this.popHeight}
+                isPopup={true}
               />
             </Provider>
-          </NewWindow>
-        ))}
+          </NewWindow>  
+        ))
+      }
+
       </div>
     );
   }
 }
 
-export default connect(null, { openAIPanel, clickDetailTabItem })(AIThreadList);
+export default connect(null, { setAIQueryId, clickDetailTabItem })(AIThreadList);
