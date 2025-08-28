@@ -196,28 +196,28 @@ class AIThreadList extends Component {
         </ul>
 
         {/* 리스트 우클릭 시 팝업 생성 */}
-        {openPopups.map((id, i) => (
-          <NewWindow
-            copyStyles
-            key={id}
-            title={`AI Assistant #${id}`}
-            features={this.getPopupFeatures(i)}
-            // onUnload={() => this.closePopup(id)}
-            onUnload={this.handlePopupUnload}
-            onOpen={this.handleOpen}
-          >
-            <Provider store={store}>
-              <AIViewPopup 
-                onClose={() => this.closePopup(id)} 
-                popupWindow={popupWin}
-                height={this.popHeight}
-                isPopup={true}
-              />
-            </Provider>
-          </NewWindow>  
-        ))
-      }
-
+      
+// ...생략...
+{openPopups.map((id, i) => (
+  <NewWindow
+    copyStyles
+    key={id}
+    title={`AI Assistant #${id}`}
+    features={this.getPopupFeatures(i)}
+    onOpen={(win) => this.handleOpen(id, win)}
+    onUnload={() => this.handlePopupUnload(id)}
+  >
+    <Provider store={store}>
+      <AIViewPopup
+        popupId={String(id)}           // ⭐️ 팝업 고유 id 내려줌
+        popupWindow={popupWindows[id]} // ⭐️ 해당 팝업 window 내려줌
+        height={this.popHeight}
+        isPopup={true}
+        onClose={() => this.closePopup(id)}
+      />
+    </Provider>
+  </NewWindow>
+))}
       </div>
     );
   }
