@@ -38,36 +38,29 @@ class AIViewPopup extends Component {
   }
 
   componentDidMount() {
-    // 팝업 window 기준으로 스크롤 대상 바인딩
     this.attachScrollFromPopupWindow();
 
-    // 타이밍 레이스 보정 rAF 재시도
     if (!this._scrollEl) {
       this._retry1 = requestAnimationFrame(() => {
         this.attachScrollFromPopupWindow();
         if (!this._scrollEl) this._retry2 = requestAnimationFrame(() => this.attachScrollFromPopupWindow());
       });
     }
-
-    // (옵션) 첫 클릭으로 팝업 문서를 부트스트랩
-    // window.addEventListener('click', this._bootstrapFromClick, true);
   }
 
   componentWillUnmount() {
     if (this._scrollEl) this._scrollEl.removeEventListener('scroll', this._onScroll);
     window.removeEventListener('click', this._bootstrapFromClick, true);
-    cancelAnimationFrame?.(this._retry1);
-    cancelAnimationFrame?.(this._retry2);
+    cancelAnimationFrame && cancelAnimationFrame(this._retry1);
+    cancelAnimationFrame && cancelAnimationFrame(this._retry2);
   }
 
-  // 전역 queryId 사용 금지! (여러 팝업이 덮어씀)
-  // 필요하면 부모가 내려준 popupId 변화에만 반응
   UNSAFE_componentWillReceiveProps(nextProps) {
     if (this.props.popupId !== nextProps.popupId) {
       this.scrollBottom = 0;
       this.scrollTop = -1;
       this.initScrollParam();
-      // id가 바뀌면 스크롤 타깃도 바꿔야 하니 재바인딩
+
       this.detachScroll();
       this.attachScrollFromPopupWindow(nextProps);
     }
@@ -84,7 +77,7 @@ class AIViewPopup extends Component {
     if (!popupWindow || popupWindow.closed) return;
 
     const doc = popupWindow.document;
-    // ⭐️ 팝업별 고유 id로 타깃을 찾는다
+    
     const el = doc.getElementById('aiviewMsg-' + popupId) || refEl;
     if (!el) return;
 
@@ -92,11 +85,10 @@ class AIViewPopup extends Component {
     this._win = doc.defaultView;
     this._scrollEl = el;
 
-    // 디버그
     console.log('[AIViewPopup] bind in popup?', this._doc !== window.document, 'id=', 'aiviewMsg-' + popupId);
 
     this._scrollEl.addEventListener('scroll', this._onScroll, { passive: true });
-    // 최초 하단 고정
+
     this._scrollEl.scrollTop = this._scrollEl.scrollHeight;
   }
 
@@ -105,7 +97,7 @@ class AIViewPopup extends Component {
       window.removeEventListener('click', this._bootstrapFromClick, true);
       return;
     }
-    const doc = e.target?.ownerDocument;
+    const doc = e.target && e.target.ownerDocument;
     if (!doc || doc === window.document) return;
 
     const el = doc.getElementById('aiviewMsg-' + this.props.popupId);
@@ -127,7 +119,6 @@ class AIViewPopup extends Component {
     const view = target.clientHeight || target.offsetHeight || 0;
     const height = target.scrollHeight || 0;
 
-    // ⭐️ 각 팝업마다 자신만의 popupId로 로그가 찍힌다
     console.log('[AIViewPopup]', this.props.popupId, 'scroll =', { top, view, height });
 
     if (top === 0) {
@@ -146,7 +137,6 @@ class AIViewPopup extends Component {
     this.preBottom = undefined;
   }
 
-  // slimscroll 대신 네이티브로 유지(원하면 여기서도 _scrollEl 사용)
   moveScroll(height) {
     const node = this.getScrollEl();
     if (!node) return;
@@ -183,12 +173,11 @@ class AIViewPopup extends Component {
 
   render() {
     const { query, selectedFile } = this.state;
-    const { setColor, isPopup, height, popupId, hideDetail } = this.props;
-    const { background, font } = setColor;
+    const { isPopup, height, popupId, hideDetail } = this.props;
 
     return (
       <div
-        className={isPopup ? 'right' : hideDetail ? 'hidden' : 'right'}
+        className={'right' }
         style={{
           display: 'flex',
           flexDirection: 'column',
@@ -196,7 +185,7 @@ class AIViewPopup extends Component {
           padding: '15px',
           height: '100%',
           overflow: 'hidden',
-          backgroundColor: isPopup ? '#fff' : background,
+          backgroundColor: '#fff'
         }}
       >
         {/* Header */}
@@ -213,19 +202,19 @@ class AIViewPopup extends Component {
             flexDirection: 'column',
             justifyContent: 'space-between',
             flex: 1,
-            height: isPopup ? height - 90 + 'px' : height,
+            height: height - 90 + 'px'
           }}
         >
           {/* 스크롤 영역 */}
           <div
             ref={this.aiviewRef}
-            id={`aiviewMsg-${popupId}`}          // ⭐️ 팝업별 고유 id
+            id={`aiviewMsg-${popupId}`}       
             className="aiview"
             style={{
               fontSize: 15,
               lineHeight: 1.5,
-              color: isPopup ? '#111' : font,
-              height: isPopup ? '95%' : '100%',
+              color: '#111',
+              height: '95%',
               overflowY: 'auto',
             }}
           >
@@ -273,10 +262,8 @@ class AIViewPopup extends Component {
 
 AIViewPopup.defaultProps = defaultProps;
 
-// ⭐️ 전역 queryId를 가져오지 않도록 변경 – 팝업 분리 유지
-const mapStateToProps = (state, ownProps) => ({
+const mapStateToProps = (state) => ({
   hideDetail: state.uiSetting.hide_detail,
   setColor: state.aiAssistant.color,
-  // queryId: state.aiAssistant.queryId,  ← 제거!
 });
 export default connect(mapStateToProps, { executeSearch })(AIViewPopup);
