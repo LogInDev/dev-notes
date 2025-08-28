@@ -16,7 +16,7 @@ class AIThreadList extends Component {
       openPopups : [],
       currentId : '0',
       nextNum : 0,
-      popupWin: null
+      popupWindow: {}
     }
 
     this.loadMore = this.loadMore.bind(this);
@@ -116,11 +116,11 @@ class AIThreadList extends Component {
   openAIPopup=(e)=>{
     e.preventDefault();
 
-    const { popupWindow } = this.state;
-    if(popupWindow && !popupWindow.closed) {
-      popupWindow.focus();
-      return;
-    }
+    // const { popupWindow } = this.state;
+    // if(popupWindow && !popupWindow.closed) {
+    //   popupWindow.focus();
+    //   return;
+    // }
     const id = e.currentTarget.dataset.id;
     this.props.setAIQueryId(id);
 
@@ -149,7 +149,13 @@ class AIThreadList extends Component {
   };
 
   handleOpen = (win) => {
-    this.setState({ popupWin: win }, ()=>{
+    const {currentId} = this.state;
+    console.log('win---', win)
+    console.log('currentId ----', currentId)
+    const newState = {...this.state}
+    newState.popupWindow[currentId] = win; 
+    console.log('newState ----', newState)
+    this.setState(newState, ()=>{
       try{
           const doc = win.document;
           const style = doc.createElement('style')
@@ -161,16 +167,22 @@ class AIThreadList extends Component {
       } catch(e){
         console.error('팝업 스크롤 생성 실패 - ', e.message);
       }
-    });
+    })
   };
 
 
-  handlePopupUnload = () =>{
-    this.setState({popupWindow: null, popon: false, open: false});
+  handlePopupUnload = (id) =>{
+    // const newState = {...this.state}
+    // const {id, ...restOfWindows} = newState.popupWindow
+    // console.log('restOfWindows=========', restOfWindows)
+    // this.setState((prevState ) => ({ 
+      // popupWindow : restOfWindows,
+      // openPopups : prevState.openPopups.filter((x) => x !== id)
+    // }));
   }
 
   render() {
-    const { openPopups, currentId, nextNum, popupWin } = this.state
+    const { openPopups, currentId, nextNum, popupWindow } = this.state
     const arr = Array.from({length:10}, (_,i) => (i * nextNum)+1);
     return (
       <div style={{height:'calc(100% - 30px)'}}>
@@ -196,28 +208,27 @@ class AIThreadList extends Component {
         </ul>
 
         {/* 리스트 우클릭 시 팝업 생성 */}
-      
-// ...생략...
-{openPopups.map((id, i) => (
-  <NewWindow
-    copyStyles
-    key={id}
-    title={`AI Assistant #${id}`}
-    features={this.getPopupFeatures(i)}
-    onOpen={(win) => this.handleOpen(id, win)}
-    onUnload={() => this.handlePopupUnload(id)}
-  >
-    <Provider store={store}>
-      <AIViewPopup
-        popupId={String(id)}           // ⭐️ 팝업 고유 id 내려줌
-        popupWindow={popupWindows[id]} // ⭐️ 해당 팝업 window 내려줌
-        height={this.popHeight}
-        isPopup={true}
-        onClose={() => this.closePopup(id)}
-      />
-    </Provider>
-  </NewWindow>
-))}
+        {openPopups.map((id, i) => (
+          <NewWindow
+            copyStyles
+            key={id}
+            title={`AI Assistant #${id}`}
+            features={this.getPopupFeatures(i)}
+            onUnload={this.handlePopupUnload(id)}
+            onOpen={this.handleOpen}
+          >
+            <Provider store={store}>
+              <AIViewPopup 
+                popupId={String(id)}
+                popupWindow={popupWindow[id]}
+                height={this.popHeight}
+                onClose={() => this.closePopup(id)} 
+              />
+            </Provider>
+          </NewWindow>  
+        ))
+      }
+
       </div>
     );
   }
