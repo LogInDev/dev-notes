@@ -1,7 +1,7 @@
 import React, { Component, createRef } from 'react';
 import { connect } from 'react-redux';
-// import slimscroll from 'slimscroll'; // ← 필요 없으면 제거
 import { executeSearch } from '../../actions';
+import AICommandList from '../views/chat/autocomplete/AICommandList'
 
 const defaultProps = {
   isPopup: false,
@@ -12,7 +12,21 @@ const defaultProps = {
 class AIViewPopup extends Component {
   constructor(props) {
     super(props);
-    this.state = { selectedFile: null, query: '' };
+    let language = global.CONFIG.language || {};
+
+    this.language = {
+      copied: language['BizworksClipboardCopied'] || '클립보드에 복사되었습니다.',
+    };
+
+    this.state = {
+      selectedFile: null,
+      query: '',
+      command: {
+        list: [],
+        cursor: 0,
+      },
+      openCommand: false
+    }
 
     this.aiviewRef = createRef();
     this.fileInputRef = createRef();
@@ -34,7 +48,6 @@ class AIViewPopup extends Component {
     this._bootstrapFromClick = this._bootstrapFromClick.bind(this);
     this.moveScroll = this.moveScroll.bind(this);
     this.initScrollParam = this.initScrollParam.bind(this);
-    this.handleInputChange = this.handleInputChange.bind(this);
   }
 
   componentDidMount() {
@@ -148,10 +161,20 @@ class AIViewPopup extends Component {
     this.scrollTop = -1;
   }
 
-  handleFileChange = (event) => {
-    const file = event.target.files[0];
-    if (file) this.setState({ selectedFile: file });
-  };
+  handleFileChange = (event) =>{
+    const file = event.target.files[0]; // 선택된 파일 가져오기
+    if (file) {
+      console.log('선택된 파일:', file);
+      const fileExtension = file.name.split('.').pop().toLowerCase();
+      if (fileExtension === 'pdf' || fileExtension === 'docx') {
+        console.log('PDF 또는 DOCX 파일입니다:', file);
+        this.setState({ selectedFile: file });
+      } else {
+        alert('PDF 또는 DOCX 파일만 업로드할 수 있습니다.');
+        event.target.value = null;
+      }
+    }
+  }
 
   searchQuery = () => {
     const v = (this.state.query || '').trim();
@@ -161,98 +184,200 @@ class AIViewPopup extends Component {
   };
 
   handleKeyDown = (event) => {
-    if (event.key === 'Enter') {
+    let _KEY = { ENTER: 13, ESC: 27, UP: 38, DOWN: 40, BACK: 8, TAB: 9, SPACE: 32 };
+    let inputKeyCode = event.keyCode;
+    let inputValue =  event.target.value
+    if (inputKeyCode === _KEY.ENTER) {
       event.preventDefault();
-      this.searchQuery();
+      this.searchQuery(inputValue); 
     }
-  };
+    if (inputKeyCode === _KEY.ESC) {
+      this.setState({
+        openCommand: false,
+      });
+    }
+  }
 
-  handleInputChange(e) {
-    this.setState({ query: e.target.value });
+  onChangeInputBox = (e) =>{
+    let _text = e.target.value; 
+    this.setState({ query: _text});
+    this.searchCommand(_text);
+  }
+
+  searchCommand = (text) =>{
+    if(text.indexOf('') === 0){
+      this.setState({ openCommand: false});
+    }
+    if(text.indexOf('#') === 0){
+      this.setState({ openCommand: true});
+    }
+  }
+
+  onMouseDownTerm = (e) => {
+    let rightclick;
+    if (e.which) rightclick = e.which === 3;
+    else if (e.button) rightclick = e.button === 2;
+
+    if (rightclick) {
+      console.log('클릭이벤트-----------', e.target.innerText)
+      let copytext = e.target.innerText;
+
+      let textarea = document.createElement('textarea');
+      textarea.textContent = copytext;
+      document.body.appendChild(textarea);
+
+      let selection = document.getSelection();
+      let range = document.createRange();
+      range.selectNode(textarea);
+
+      selection.removeAllRanges();
+      selection.addRange(range);
+
+      // console.log('copy success', document.execCommand('copy'));
+      document.execCommand('copy');
+      selection.removeAllRanges();
+
+      document.body.removeChild(textarea);
+      
+      this.refs.termcopylayer2.className = 'termcopylayer2 active';
+      setTimeout(() => {
+        this.refs.termcopylayer2.className = 'termcopylayer2 active fadeout';
+      }, 1000);
+
+      // e.preventDefault();
+      // e.stopPropagation();
+      // this.props.actionparam.openMessageTerm(this.props.message.content);
+      // e.stopImmediatePropagation();
+      // return false;
+    }
   }
 
   render() {
-    const { query, selectedFile } = this.state;
+    let { image } = global.CONFIG.resource;
+    const { query, selectedFile, openCommand } = this.state;
     const { isPopup, height, popupId, hideDetail } = this.props;
 
     return (
-      <div
-        className={'right' }
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'flex-start',
-          padding: '15px',
-          height: '100%',
-          overflow: 'hidden',
-          backgroundColor: '#fff'
-        }}
-      >
-        {/* Header */}
-        <div style={{ height: '5%' }}>
-          <span style={{ fontSize: 15, fontWeight: 'bold' }}>✨AI 결과</span>
-          <div style={{ backgroundColor: '#fff', borderTop: '1px solid #8c8c8c', margin: '20px auto' }} />
-        </div>
-
-        {/* Body */}
+      <div id="root">
         <div
+          className={'right' }
           style={{
             display: 'flex',
-            marginTop: 10,
             flexDirection: 'column',
-            justifyContent: 'space-between',
-            flex: 1,
-            height: height - 90 + 'px'
+            justifyContent: 'flex-start',
+            padding: '15px',
+            height: '100%',
+            overflow: 'hidden',
+            backgroundColor: '#fff'
           }}
         >
-          {/* 스크롤 영역 */}
-          <div
-            ref={this.aiviewRef}
-            id={`aiviewMsg-${popupId}`}       
-            className="aiview"
-            style={{
-              fontSize: 15,
-              lineHeight: 1.5,
-              color: '#111',
-              height: '95%',
-              overflowY: 'auto',
-            }}
-          >
-            <br />
-            PopupID : {popupId} <br />
-            안녕하세요 <br />
-            Pizza입니다. <br />
-            무엇을 도와드릴까요? <br />
-            <br />
-            현재 테스트 진행중입니다.<br />
-            <br />
-            {Array.from({ length: 80 }).map((_, i) => <div key={i}>row {i + 1}</div>)}
+          {/* Header */}
+          <div style={{ height: '5%' }}>
+            <span style={{ fontSize: 15, fontWeight: 'bold' }}>✨AI 결과</span>
+            <div style={{ backgroundColor: '#fff', borderTop: '1px solid #8c8c8c', margin: '20px auto' }} />
           </div>
 
-          {/* 입력 영역 */}
-          <div style={{ display: 'flex' }} className="search_ai">
-            <button type="button" onClick={() => this.fileInputRef.current.click()}>파일</button>
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={this.handleFileChange}
-              ref={this.fileInputRef}
-              style={{ display: 'none' }}
-            />
-            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-              {selectedFile && <p>선택된 파일: {selectedFile.name}</p>}
-              <input
-                ref={this.wrapperRef}
-                type="text"
-                style={{ width: '100%' }}
-                placeholder="검색어를 입력하세요"
-                name="queryInput"
-                value={query}
-                onChange={this.handleInputChange}
-                onKeyDown={this.handleKeyDown}
-              />
+           {/* 검색 결과 및 질의 입력*/}
+          <div
+            className="chatW"
+            style={{
+              display: 'flex',
+              marginTop: 10,
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              flex: 1,
+              height: height - 55 + 'px'
+            }}
+          >
+            {/* 검색 결과 */}
+            <div
+              ref={this.aiviewRef}
+              id={`aiviewMsg-${popupId}`}       
+              className="aiview"
+              style={{
+                fontSize: 15,
+                lineHeight: 1.5,
+                color: '#111',
+                height: '86%',
+                overflowY: 'auto',
+              }}
+            >
+              <div onContextMenu={(e) => e.preventDefault()} onMouseDown={this.onMouseDownTerm}>
+                PopupID : {popupId} <br />
+                </div>
+                <br />
+                <div onContextMenu={(e) => e.preventDefault()} onMouseDown={this.onMouseDownTerm}>
+                안녕하세요 <br />
+                Pizza입니다. <br />
+                무엇을 도와드릴까요? <br />
+                <br />
+                현재 테스트 진행중입니다.
+                </div>
+                <br />
+                {Array.from({ length: 80 }).map((_, i) => 
+                <div 
+                  onContextMenu={(e) => e.preventDefault()} onMouseDown={this.onMouseDownTerm}
+                  key={i}
+                >
+                  row {i + 1}
+                </div>)}
             </div>
-            <button onClick={this.searchQuery}>🔎</button>
+
+          {/* 복사 완료 토글 */}
+            <div className="termcopylayer2 active fadeout" ref="termcopylayer2">
+              <span className="termcopymsg">{this.language.copied}</span>
+            </div>
+
+          {/* 입력 영역 */}
+            {/* 사용자가 참여한 채널 리스트 */}
+            <div className="chatinput on" >
+              <div className="chatApp">
+                {/* 질의문 입력 및 파일 추가 */}
+                <img
+                  className="app"
+                  src={image + '/chat/btn-plus.png'}
+                  onClick={() => this.fileInputRef.current.click()}
+                  role="presentation"
+                />
+              </div>
+              <div id="texta" className="texta">
+                <input
+                  type="file"
+                  accept=".pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  onChange={this.handleFileChange}
+                  ref={this.fileInputRef} 
+                  style={{display:"none"}}
+                />   
+                {selectedFile && (
+                    <div>선택된 파일: {selectedFile.name}</div> 
+                  )}
+                  <textarea
+                    ref={this.wrapperRef}
+                    rows="2"
+                    cols="20"
+                    style={{ overflow: 'hidden', whiteSpace: 'nowrap', width: 'calc(100% - 40px)' }}
+                    placeholder='검색어를 입력하세요' 
+                    name="queryInput"
+                    value={query}
+                    onChange={this.onChangeInputBox}
+                    onClick={(e) => e.preventDefault()}
+                    onKeyDown={this.handleKeyDown}
+                  />
+                  <div className="inputBtns" onClick={this.searchQuery}>
+                    <i className="icon-magnifier" />
+                  </div>
+              </div>
+              {openCommand &&
+                <AICommandList
+                profile={this.props.profile}
+                command={this.props.command}
+                onCommand={this.setCommandCursor}
+                onSelectedCommand={this.selectCommand}
+                onSelectCompany={this.setCommandCompanyCode}
+                Height={this.height}
+                companyCode={this.props.profile.companyCode}
+              />}
+            </div>
           </div>
         </div>
       </div>
