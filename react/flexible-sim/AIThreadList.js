@@ -177,12 +177,17 @@ class AIThreadList extends Component {
     }), () => {
       try {
         const doc = win.document;
-        const style = doc.createElement('style');
-        style.textContent = `
-          html, body { height: 100%; margin: 0; }
-          #root, #app { height: 100%; }
-        `;
-        doc.head.appendChild(style);
+        const stylesheets = [
+          '/css/lineico/simple-line-icons.css',
+          '/css/reset.css',
+          '/css/style.css',
+        ];
+        stylesheets.forEach(url => {
+          const link = doc.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = url;
+          doc.head.appendChild(link);
+        });
       } catch (e) {
         console.error('팝업 스타일 주입 실패:', e.message);
       }
@@ -230,7 +235,6 @@ class AIThreadList extends Component {
         {/* 리스트 우클릭 시 팝업 생성 */}
         {openPopups.map((id, i) => (
           <NewWindow
-            copyStyles
             key={id}
             title={`AI Assistant #${id}`}
             features={this.getPopupFeatures(i)}
