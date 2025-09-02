@@ -72,7 +72,6 @@ class AIThreadList extends Component {
       idSelector : '#aithread',             
       height: '100%',      
       scrollTo: this.scrollTop,
-      // allowPageScroll: false,
     });
 
     if (typeof this.slimscroll.init === 'function') {
@@ -92,9 +91,6 @@ class AIThreadList extends Component {
 
   onSlimscroll(e) {
     this.scrollTop = (e.target && e.target.scrollTop) ;
-
-    console.log('scrollTop--------------', this.scrollTop)
-    // 필요 조건에 맞게 트리거 (예: 끝에 가까울 때만 등)
     if (this.scrollTop > 224) this.loadMore(10);
   }
 
@@ -114,10 +110,13 @@ class AIThreadList extends Component {
  
   openAIPopup=(e)=>{
     e.preventDefault();
+    e.stopPropagation();
+    if (e.nativeEvent && typeof e.nativeEvent.stopImmediatePropagation === 'function') {
+      e.nativeEvent.stopImmediatePropagation();
+    }
 
     const id = String(e.currentTarget.dataset.id);
 
-    // 이미 열려있으면 포커스
     const win = this.state.popupWindow[id];
     if (win && !win.closed) {
       try { 
@@ -137,7 +136,6 @@ class AIThreadList extends Component {
 
   closePopup = (id) => {
     this.setState((s) => {
-      // window 닫기 시도
       const win = s.popupWindow[id];
       if (win && !win.closed) {
         try { 
@@ -146,7 +144,6 @@ class AIThreadList extends Component {
           console.error('closePopup---------', e.message)
         }
       }
-      // 상태 정리
       const nextMap = { ...s.popupWindow };
       delete nextMap[id];
       return {
@@ -211,7 +208,18 @@ class AIThreadList extends Component {
     const arr = Array.from({length:10}, (_,i) => (i * nextNum)+1);
     return (
       <div style={{height:'calc(100% - 30px)'}}>
-        <ul className="list2" id='aithread'>
+        <ul
+          className="list2"
+          id='aithread'
+          data-no-copy-toast
+          onContextMenuCapture={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.nativeEvent && typeof e.nativeEvent.stopImmediatePropagation === 'function') {
+              e.nativeEvent.stopImmediatePropagation();
+            }
+          }}
+        >
           {arr.map((_, idx) => {
               return (
                 <li data-id={idx} key={idx}
@@ -232,7 +240,6 @@ class AIThreadList extends Component {
           }
         </ul>
 
-        {/* 리스트 우클릭 시 팝업 생성 */}
         {openPopups.map((id, i) => (
           <NewWindow
             key={id}
