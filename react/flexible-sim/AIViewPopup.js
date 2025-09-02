@@ -33,8 +33,6 @@ class AIViewPopup extends Component {
     this.wrapperRef = createRef();
     this.termCopyRef = createRef(); 
 
-
-    // 스크롤 상태
     this.isFirst = true;
     this.scrollBottom = -1;
     this.scrollTop = -1;
@@ -45,7 +43,6 @@ class AIViewPopup extends Component {
     this.precurrentScrollTop = -1;
     this.isModify = false;
 
-    // 바인딩
     this._onScroll = this._onScroll.bind(this);
     this._bootstrapFromClick = this._bootstrapFromClick.bind(this);
     this.moveScroll = this.moveScroll.bind(this);
@@ -164,7 +161,7 @@ class AIViewPopup extends Component {
   }
 
   handleFileChange = (event) =>{
-    const file = event.target.files[0]; // 선택된 파일 가져오기
+    const file = event.target.files[0];
     if (file) {
       console.log('선택된 파일:', file);
       const fileExtension = file.name.split('.').pop().toLowerCase();
@@ -216,26 +213,22 @@ class AIViewPopup extends Component {
   }
 
   onMouseDownTerm = async (e) => {
-    e.preventDefault()
-    // let rightclick;
-    // if (e.which) rightclick = e.which === 3;
-    // else if (e.button) rightclick = e.button === 2;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.nativeEvent && typeof e.nativeEvent.stopImmediatePropagation === 'function') {
+      e.nativeEvent.stopImmediatePropagation();
+    }
 
-    // if(!rightclick) return;
-    console.log('pop - copy된거 -------', e.target)
     const copytext = e.target && e.target.innerText ? e.target.innerText : '';
-    console.log('pop - copy된거 -------', copytext)
     if(!copytext) return;
 
     const ok = await this.copyTextInactiveDoc(copytext, e);
 
-    // 같은 문서에 렌더된 토스트를 표시
     const layer = this.termCopyRef.current;
     if(ok && layer && copytext){
       layer.className = 'termcopylayer2 active';
       setTimeout(() => {
         if (this.termCopyRef.current) {
-          console.log('우클릭 팝업')
           this.termCopyRef.current.className = 'termcopylayer2 active fadeout';
         }
       }, 1000);
@@ -264,7 +257,7 @@ class AIViewPopup extends Component {
     const { height, popupId } = this.props;
 
     return (
-      <div id="root">
+      <div id="root" data-allow-copy-toast>
         <div
           className={'right' }
           style={{
@@ -277,14 +270,12 @@ class AIViewPopup extends Component {
             backgroundColor: '#fff'
           }}
         >
-          {/* Header */}
           <div style={{ height: '5%' }}>
             <span style={{ fontSize: 15, fontWeight: 'bold' }}>✨AI 결과</span>
             <div style={{ backgroundColor: '#fff', borderTop: '1px solid #8c8c8c', margin: '20px auto' }} />
           </div>
 
-           {/* 검색 결과 및 질의 입력*/}
-          <div
+           <div
             className="chatW"
             style={{
               display: 'flex',
@@ -295,7 +286,6 @@ class AIViewPopup extends Component {
               height: height - 55 + 'px'
             }}
           >
-            {/* 검색 결과 */}
             <div
               ref={this.aiviewRef}
               id={`aiviewMsg-${popupId}`}       
@@ -308,25 +298,19 @@ class AIViewPopup extends Component {
                 overflowY: 'auto',
               }}
             >
-              <div 
-              // onContextMenu={(e) => e.preventDefault()} onMouseDown={this.onMouseDownTerm}
-              onContextMenu={this.onMouseDownTerm}
-              >
+              <div onContextMenu={this.onMouseDownTerm}>
                 PopupID : {popupId} <br />
-                </div>
-                <br />
-                <div 
-              // onContextMenu={(e) => e.preventDefault()} onMouseDown={this.onMouseDownTerm}
-              onContextMenu={this.onMouseDownTerm}
-              >
+              </div>
+              <br />
+              <div onContextMenu={this.onMouseDownTerm}>
                 안녕하세요 <br />
                 Pizza입니다. <br />
                 무엇을 도와드릴까요? <br />
                 <br />
                 현재 테스트 진행중입니다.
-                </div>
-                <br />
-                {Array.from({ length: 80 }).map((_, i) => 
+              </div>
+              <br />
+              {Array.from({ length: 80 }).map((_, i) => 
                 <div 
                   onContextMenu={this.onMouseDownTerm}
                   key={i}
@@ -335,16 +319,12 @@ class AIViewPopup extends Component {
                 </div>)}
             </div>
 
-          {/* 복사 완료 토글 */}
             <div className="termcopylayer2 active fadeout" ref={this.termCopyRef}>
               <span className="termcopymsg">{this.language.copied}</span>
             </div>
 
-          {/* 입력 영역 */}
-            {/* 사용자가 참여한 채널 리스트 */}
             <div className="chatinput on" >
               <div className="chatApp">
-                {/* 질의문 입력 및 파일 추가 */}
                 <img
                   className="app"
                   src={image + '/chat/btn-plus.png'}
@@ -381,14 +361,14 @@ class AIViewPopup extends Component {
               </div>
               {openCommand &&
                 <AICommandList
-                profile={this.props.profile}
-                command={this.props.command}
-                onCommand={this.setCommandCursor}
-                onSelectedCommand={this.selectCommand}
-                onSelectCompany={this.setCommandCompanyCode}
-                Height={this.height}
-                companyCode={this.props.profile.companyCode}
-              />}
+                  profile={this.props.profile}
+                  command={this.props.command}
+                  onCommand={this.setCommandCursor}
+                  onSelectedCommand={this.selectCommand}
+                  onSelectCompany={this.setCommandCompanyCode}
+                  Height={this.height}
+                  companyCode={this.props.profile.companyCode}
+                />}
             </div>
           </div>
         </div>
