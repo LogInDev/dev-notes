@@ -1,8 +1,12 @@
 import React, {Component, createRef} from 'react';
 import slimscroll from 'slimscroll';
+import * as Socket from '../../../socket';
+import * as actions from '../../../actions';
+import * as Store from 'GlobalStore';
 import { connect } from 'react-redux';
-import { executeSearch, hideDetailArea } from '../../../actions';
+import { executeSearch, hideDetailArea, clickDetailTabItem, tmsListOnOff } from '../../../actions';
 import AICommandList from './autocomplete/AICommandList';
+import MessageList from '../messages/MessageList'
 
 class AIView extends Component {
   constructor(props) {
@@ -25,10 +29,12 @@ class AIView extends Component {
 
     this.fileInputRef = createRef();
     this.wrapperRef = createRef();
-    this.termCopyRef = createRef();
+    this.termCopyRef = createRef(); // 문자열 ref 제거
 
     this.loadMore = this.loadMore.bind(this);
     this.onSlimscroll = this.onSlimscroll.bind(this);
+    this.openDetail = this.openDetail.bind(this);
+
 
     this.scrollTop = 0;
     this.isUpdate = false;
@@ -82,6 +88,7 @@ class AIView extends Component {
       idSelector : '#aiview',             
       height: 'calc(100% - 50px)',      
       scrollTo: this.scrollTop,
+      // allowPageScroll: false,
     });
 
     if (typeof this.slimscroll.init === 'function') {
@@ -101,6 +108,16 @@ class AIView extends Component {
 
   onSlimscroll(e) {
     this.scrollTop = (e.target && e.target.scrollTop) ;
+
+    const target = e.target;
+    const top = target.scrollTop || 0;
+    const view = target.clientHeight || target.offsetHeight || 0;
+    const height = target.scrollHeight || 0;
+
+    console.log('[AIView]', this.props.popupId, 'scroll =', { top, view, height });
+
+    // 필요 조건에 맞게 트리거 (예: 끝에 가까울 때만 등)
+    // if (this.scrollTop > 0) this.loadMore(userlist.length);
   }
 
   loadMore(listcount) {
@@ -109,7 +126,7 @@ class AIView extends Component {
   }
 
   handleFileChange = (event) =>{
-    const file = event.target.files[0];
+    const file = event.target.files[0]; // 선택된 파일 가져오기
     if (file) {
       console.log('선택된 파일:', file);
       const fileExtension = file.name.split('.').pop().toLowerCase();
@@ -143,6 +160,7 @@ class AIView extends Component {
     }
   }
 
+  // 단축키 등록
   handleKeyDownClose = (event) => {
     if(event.ctrlKey && event.key === 'e'){
       event.preventDefault();
@@ -150,6 +168,7 @@ class AIView extends Component {
     }
   }
 
+  // Command List
   setCommandCursor(_cursor) {
     let { list, cursor } = this.state.command;
     cursor = (_cursor + list.length) % list.length;
@@ -172,6 +191,7 @@ class AIView extends Component {
     }
   }
 
+
   selectCommand(idx) {
     let selectedCommand = this.state.command.list[idx];
     if (selectedCommand !== undefined) {
@@ -185,6 +205,7 @@ class AIView extends Component {
           channelInfo.TMS_Space !== null &&
           channelInfo.TMS_Space.spaceId !== -1
         ) {
+          // 스페이스 자동완성
           commandStr =
             commandStr +
             '$' +
@@ -196,11 +217,16 @@ class AIView extends Component {
       }
 
       this.setInputBox(commandStr, true);
+
+      // if(selectedCommand.command === 'Hygpt'){
+      //   this.props.clickDetailTabItem('hygpt');
+      // }
     }
   }
 
   setCommandCompanyCode(companyCode) {
     this.commandCompanyCode = companyCode;
+    // this.searchCommand(this.refs.inputbox.value);
   }
 
   onChangeInputBox = (e) =>{
@@ -219,19 +245,13 @@ class AIView extends Component {
     }
   }
 
-  onMouseDownTerm = async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.nativeEvent && typeof e.nativeEvent.stopImmediatePropagation === 'function') {
-      e.nativeEvent.stopImmediatePropagation();
-    }
+  onContextMenuTerm = async (e) => {
+    e.preventDefault()
 
-    const copytext = e.target && e.target.innerText ? e.target.innerText : '';
-    if(!copytext) return;
-
-    const ok = await this.copyTextInactiveDoc(copytext, e);
+    const ok = await this.copyTextInactiveDoc(e);
+    
     const layer = this.termCopyRef.current;
-    if(ok && layer && copytext){
+    if(ok && layer ){
       layer.className = 'termcopylayer2 active';
       setTimeout(() => {
         if (this.termCopyRef.current) {
@@ -239,22 +259,96 @@ class AIView extends Component {
         }
       }, 1000);
     }
+    e.stopPropagation();
+    const ne = e.nativeEvent
+    if (ne && typeof ne.stopImmediatePropagation === 'function') {
+      ne.stopImmediatePropagation();
+    }
   }
 
-  copyTextInactiveDoc = async (text, e) =>{
-    console.log('copyu====defaultView : ', document.defaultView )
-    console.log('copyu====window : ', window )
+  copyTextInactiveDoc = async (e) =>{
     const win = window;
-
     try{
       const nav = win.navigator;
       const isSecure = (typeof win.isSecureContext === 'boolean') ? win.isSecureContext : true;
       if(nav && nav.clipboard && isSecure){
+        const text = e.target && e.target.innerText ? e.target.innerText : '';
+        if(!text) return;
         await nav.clipboard.writeText(text);
         return true;
       }
     }catch(error){
       console.log('copyTextInactiveDoc-----', error.message)
+    }
+  }
+
+  openMessageTerm(messageText) {
+    Socket.getApi().termDictionary({
+      channelID: this.props.channelInfo.channel_id,
+      channelMsg: messageText,
+    });
+    this.setState({
+      ...this.state,
+      openTerm: true,
+      openMention: false,
+      openCommand: false,
+      openSpacesList: false,
+      openCategoriesList: false,
+      openTasksList: false,
+    });
+  }
+
+  openDetail(messageid) {
+    const store = Store.getStore();
+    // let profile = Store.getProfile();
+    // let token = '';
+    // if(profile.iFlowToken){
+    //   token =profile.iFlowToken.toString().trim();
+    // }
+    if (typeof messageid === 'string' && (messageid + '').trim().length > 0) {
+      let params = {
+        messageID: messageid + '',
+        channelid: this.props.channelInfo.channel_id + '',
+      };
+      Socket.getApi().selectMessage(params, (msg) => {
+        store.dispatch(actions.moveToDetail(msg));
+      });
+    }
+  }
+
+  setMentionToInputBox(mention) {
+    let isAnonymousChannel = this.props.channelInfo.channel_type === 3;
+
+    if (!isAnonymousChannel) {
+      this.refs.inputbox.value += mention + ' ';
+      this.refs.inputbox.focus();
+    }
+  }
+
+  renderRecentButton() {
+    if (this.props.messages.hasNext === 1) {
+      let body =
+        this.props.messages.newMessageCount > 0 ? (
+          <p>
+            <span>
+              {this.language.newMessageReceive + '(' + this.props.messages.newMessageCount + ')'}
+            </span>
+            <a className="gorecent" onClick={this.onClickRecentButton}>
+              Go to Recent
+            </a>
+          </p>
+        ) : (
+          <p>
+            <span>
+              <a className="gorecent" onClick={this.onClickRecentButton}>
+                Go to Recent
+              </a>
+            </span>
+          </p>
+        );
+      return <div className="recentto recent-newmessage">{body}</div>;
+    } else {
+      return false;
     }
   }
 
@@ -267,125 +361,152 @@ class AIView extends Component {
     let border = this.props.writting.length > 0 ? '1px solid #3bbdfe' : '';
 
     return(
-      <div className={this.props.hideDetail ? 'hidden' :'right' }
-           data-allow-copy-toast
-           style={{
-             display : 'flex',
-             flexDirection: 'column',
-             justifyContent: 'flex-start',
-             padding: '15px',
-             height: '100%',
-             backgroundColor: background
-           }}
-      >
-        <div style={{height:'5%'}}>
-          <span
+          <div className={this.props.hideDetail ? 'hidden' :'right' }
             style={{
-              fontSize: '15px',
-              fontWeight: 'bold'
+              display : 'flex',
+              flexDirection: 'column',
+              justifyContent: 'flex-start',
+              padding: '15px',
+              height: '100%',
+              backgroundColor: background  // 설정으로 변경
             }}
-          >✨AI 결과 </span>
-          <div
-            style={{
-              backgroundColor: '#fff',
-              borderTop: '1px solid #8c8c8c',
-              margin: '20px auto',
-            }}
-          />
-        </div>
-        <div
-          className="chatW"
-          style={{
-            display: 'flex',
-            marginTop: '10px',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            flex: '1',
-            height: '95%'
-          }}
-        >
-          <div
-            id='aiview'
-            style={{
-              fontSize:'15px',
-              lineHeight: '1.5',
-              color: font
-            }}>
-            <div onContextMenu={this.onMouseDownTerm}>
-              PopupID : {queryId} <br />
-            </div>
-            <br />
-            <div onContextMenu={this.onMouseDownTerm}>
-              안녕하세요 <br />
-              Pizza입니다. <br />
-              무엇을 도와드릴까요? <br />
-              <br />
-              현재 테스트 진행중입니다.
-            </div>
-            <br />
-            {Array.from({ length: 80 }).map((_, i) => 
-              <div 
-                onContextMenu={this.onMouseDownTerm}
-                key={i}
-              >
-                row {i + 1}
-              </div>)}
-          </div>  
-
-          <div className="termcopylayer2 active fadeout" style={{left:'38%', right:'0'}} ref={this.termCopyRef}>
-            <span className="termcopymsg">{this.language.copied}</span>
-          </div>
-
-          <div className="chatinput on" >
-            <div className="chatApp">
-              <img
-                className="app"
-                src={image + '/chat/btn-plus.png'}
-                onClick={() => this.fileInputRef.current.click()}
-                role="presentation"
-              />
-            </div>
-            <div id="texta" className="texta">
-              <input
-                type="file"
-                accept=".pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={this.handleFileChange}
-                ref={this.fileInputRef} 
-                style={{display:"none"}}
-              />   
-              {selectedFile && (
-                  <div>선택된 파일: {selectedFile.name}</div> 
-                )}
-                <textarea
-                      ref={this.wrapperRef}
-                      rows="2"
-                      cols="20"
-                      style={{ overflow: 'hidden', whiteSpace: 'nowrap', width: 'calc(100% - 40px)' }}
-                      placeholder='검색어를 입력하세요' 
-                      name="queryInput"
-                      value={query}
-                      onChange={this.onChangeInputBox}
-                      onClick={(e) => e.preventDefault()}
-                      onKeyDown={this.handleKeyDown}
+          >
+            {/* AI Panel 상단 */}
+              <div style={{height:'5%'}}>
+                <span
+                  style={{
+                    fontSize: '15px',
+                    fontWeight: 'bold'
+                  }}
+                >✨AI 결과 </span>
+                <div
+                  style={{
+                    backgroundColor: '#fff',
+                    borderTop: '1px solid #8c8c8c',
+                    margin: '20px auto',
+                  }}
                 />
-                <div className="inputBtns" onClick={this.searchQuery}>
-                  <i className="icon-magnifier" />
+              </div>
+            {/* 검색 결과 및 질의 입력*/}
+              <div
+                className="chatW"
+                style={{
+                    display: 'flex',
+                    marginTop: '10px',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    flex: '1',
+                    height: '95%'
+                  }}
+              >
+                {/* 검색 결과 */}
+                <div
+                  id='aiview'
+                  className="chatlist"
+                  style={{
+                    fontSize:'15px',
+                    lineHeight: '1.5',
+                    color: font // 설정으로 변경
+                  }}>
+                  <div onContextMenu={this.onContextMenuTerm}>
+                  PopupID : {queryId} <br />
+                  </div>
+                  <br />
+                  <div onContextMenu={this.onContextMenuTerm}>
+                  안녕하세요 <br />
+                  Pizza입니다. <br />
+                  무엇을 도와드릴까요? <br />
+                  <br />
+                  현재 테스트 진행중입니다.
+                  </div>
+                  <br />
+                  <div>{this.renderRecentButton()}</div>
+                  <MessageList
+                    channelinfo={this.props.infosummary}
+                    // openMessage={this.state.openMessageList}
+                    openMessage={true}
+                    channelid={this.props.channelInfo.channel_id}
+                    messages={this.props.messages}
+                    userid={this.props.profile.userID}
+                    companycode={this.props.profile.companyCode}
+                    action={this.props.action}
+                    onAddMention={this.setMentionToInputBox.bind(this)}
+                    openDetail={this.openDetail}
+                    openPopupFlag={false}
+                    openMessageTerm={this.openMessageTerm.bind(this)}
+                    fontcolor={
+                      this.props.infosummary.channel_set !== undefined &&
+                      this.props.infosummary.channel_set.CHANNELID !== -1
+                        ? this.props.infosummary.channel_set.COLOR_FONT
+                        : global.CONFIG.other.fontColor
+                    }
+                  />
+                </div>  
+
+              {/* 복사 완료 토글 */}
+              <div className="termcopylayer2 active fadeout" style={{left:'38%', right:'0'}} ref={this.termCopyRef}>
+                <span className="termcopymsg">{this.language.copied}</span>
+              </div>
+
+              {/* 입력 영역 */}
+                {/* 사용자가 참여한 채널 리스트 */}
+                <div className="chatinput on" >
+                  <div className="chatApp">
+                    {/* 질의문 입력 및 파일 추가 */}
+                    <img
+                      className="app"
+                      src={image + '/chat/btn-plus.png'}
+                      onClick={() => this.fileInputRef.current.click()}
+                      role="presentation"
+                    />
+                  </div>
+                  <div id="texta" className="texta">
+                    <input
+                      type="file"
+                      accept=".pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      onChange={this.handleFileChange}
+                      ref={this.fileInputRef} 
+                      style={{display:"none"}}
+                    />   
+                    {selectedFile && (
+                        <div>선택된 파일: {selectedFile.name}</div> 
+                      )}
+                      <textarea
+                            ref={this.wrapperRef}
+                            rows="2"
+                            cols="20"
+                            style={{ overflow: 'hidden', whiteSpace: 'nowrap', width: 'calc(100% - 40px)' }}
+                            placeholder='검색어를 입력하세요' 
+                            name="queryInput"
+                            value={query}
+                            onChange={this.onChangeInputBox}
+                            onClick={(e) => e.preventDefault()}
+                            onKeyDown={this.handleKeyDown}
+                      />
+                      <div className="inputBtns" 
+                        onClick={this.searchQuery}
+                        style={{
+                          fontSize: '18px',
+                          paddingTop: '4px',
+                        }}
+                      >
+                        <i className="icon-magnifier" />
+                      </div>
+                  </div>
+                  {openCommand &&
+                    <AICommandList
+                    profile={this.props.profile}
+                    command={this.props.command}
+                    onCommand={this.setCommandCursor}
+                    onSelectedCommand={this.selectCommand}
+                    onSelectCompany={this.setCommandCompanyCode}
+                    Height={this.height}
+                    companyCode={this.props.profile.companyCode}
+                  />}
                 </div>
-            </div>
-            {openCommand &&
-              <AICommandList
-                profile={this.props.profile}
-                command={this.props.command}
-                onCommand={this.setCommandCursor}
-                onSelectedCommand={this.selectCommand}
-                onSelectCompany={this.setCommandCompanyCode}
-                Height={this.height}
-                companyCode={this.props.profile.companyCode}
-              />}
-          </div>
-        </div>
-      </div>              
-    )
+              </div>
+          </div>              
+      )
   }
 }
 
@@ -394,10 +515,17 @@ const mapStateToProps = (state) => {
     hideDetail: state.uiSetting.hide_detail,
     setColor: state.aiAssistant.color,
     queryId: state.aiAssistant.queryId,
+    // command 추가
     command: state.uiSetting.command,
     profile: state.profile.profile,
     writting: state.messages.writting,
+    // 추가
+    messages: state.messages,
+    channelInfo: state.channel.infosummary.channel_info,
+    infosummary: state.channel.infosummary,
+    action: state.uiSetting.message_action,
+
   };
 };
 
-export default  connect(mapStateToProps, { executeSearch, hideDetailArea })(AIView);
+export default  connect(mapStateToProps, { executeSearch, hideDetailArea, clickDetailTabItem, tmsListOnOff })(AIView);
