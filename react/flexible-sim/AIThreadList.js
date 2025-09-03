@@ -108,31 +108,35 @@ class AIThreadList extends Component {
     this.setState({ currentId: id });
   }
  
-  openAIPopup=(e)=>{
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.nativeEvent && typeof e.nativeEvent.stopImmediatePropagation === 'function') {
-      e.nativeEvent.stopImmediatePropagation();
-    }
+  openAIPopup = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
 
-    const id = String(e.currentTarget.dataset.id);
+  const id = String(e.currentTarget.dataset.id);
 
-    const win = this.state.popupWindow[id];
-    if (win && !win.closed) {
-      try { 
-        win.focus(); 
-      } catch(e) {
-        console.error('openAIPopup --------------', e.message)
-      }
-      return;
-    }
-
-    this.props.setAIQueryId(id);
-    this.setState((s) => ({
-      openPopups: s.openPopups.indexOf(id) >= 0 ? s.openPopups : [...s.openPopups, id],
-      currentId: id
-    }));
+  // 이미 열려있으면 포커스
+  const win = this.state.popupWindow[id];
+  if (win && !win.closed) {
+    try { win.focus(); } catch (err) { console.error('openAIPopup focus', err.message); }
+    return;
   }
+
+  // 우클릭 이벤트가 완전히 끝난 다음에 팝업을 열도록 다음 틱으로 미룸
+  // 그리고 "초기 컨텍스트메뉴 무시" 타임스탬프를 같이 넘길 준비
+  const SUPPRESS_MS = 300;
+  const suppressUntil = Date.now() + SUPPRESS_MS;
+
+  // 상태 변경은 즉시 하고, 렌더링-포털 연결은 다음 프레임에서
+  this.props.setAIQueryId(id);
+  this.setState((s) => ({
+    openPopups: s.openPopups.indexOf(id) >= 0 ? s.openPopups : [...s.openPopups, id],
+    currentId: id,
+    __suppressUntil: { ...(s.__suppressUntil || {}), [id]: suppressUntil }
+  }), () => {
+    // 아무 것도 안 해도 되지만, 필요하다면 requestAnimationFrame 한 번 더
+    // requestAnimationFrame(() => {});
+  });
+};
 
   closePopup = (id) => {
     this.setState((s) => {
@@ -168,28 +172,37 @@ class AIThreadList extends Component {
   };
 
   handleOpen = (id, win) => {
-    console.log('')
-    this.setState((s) => ({
-      popupWindow: { ...s.popupWindow, [id]: win },
-    }), () => {
-      try {
-        const doc = win.document;
-        const stylesheets = [
-          '/css/lineico/simple-line-icons.css',
-          '/css/reset.css',
-          '/css/style.css',
-        ];
-        stylesheets.forEach(url => {
-          const link = doc.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = url;
-          doc.head.appendChild(link);
-        });
-      } catch (e) {
-        console.error('팝업 스타일 주입 실패:', e.message);
-      }
-    });
-  };
+  this.setState((s) => ({
+    popupWindow: { ...s.popupWindow, [id]: win },
+  }), () => {
+    try {
+      const doc = win.document;
+      const stylesheets = [
+        '/css/lineico/simple-line-icons.css',
+        '/css/reset.css',
+        '/css/style.css',
+      ];
+      stylesheets.forEach(url => {
+        const link = doc.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = url;
+        doc.head.appendChild(link);
+      });
+
+      // ★ 팝업 문서에 "초기 contextmenu 무시" 타임스탬프 주입
+      const suppressUntil =
+        (this.state.__suppressUntil && this.state.__suppressUntil[id]) || (Date.now() + 250);
+      win.__suppressContextMenuUntil = suppressUntil;
+
+      // 안전하게 타임아웃 지나면 플래그 해제
+      setTimeout(() => {
+        try { win.__suppressContextMenuUntil = 0; } catch(_) {}
+      }, Math.max(0, suppressUntil - Date.now() + 50));
+    } catch (e) {
+      console.error('팝업 스타일/플래그 주입 실패:', e.message);
+    }
+  });
+};
 
 
   handlePopupUnload = (id) =>{
