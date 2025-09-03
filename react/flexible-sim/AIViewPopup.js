@@ -213,27 +213,30 @@ class AIViewPopup extends Component {
   }
 
   onMouseDownTerm = async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.nativeEvent && typeof e.nativeEvent.stopImmediatePropagation === 'function') {
-      e.nativeEvent.stopImmediatePropagation();
-    }
+  e.preventDefault();
+  e.stopPropagation();
 
-    const copytext = e.target && e.target.innerText ? e.target.innerText : '';
-    if(!copytext) return;
-
-    const ok = await this.copyTextInactiveDoc(copytext, e);
-
-    const layer = this.termCopyRef.current;
-    if(ok && layer && copytext){
-      layer.className = 'termcopylayer2 active';
-      setTimeout(() => {
-        if (this.termCopyRef.current) {
-          this.termCopyRef.current.className = 'termcopylayer2 active fadeout';
-        }
-      }, 1000);
-    }
+  // ★ 팝업이 뜬 직후 최초 contextmenu는 무시
+  const doc = (e && e.target && e.target.ownerDocument) || this._doc || document;
+  const win = doc.defaultView || window;
+  if (win.__suppressContextMenuUntil && Date.now() < win.__suppressContextMenuUntil) {
+    return; // 초기 잔여 이벤트로 들어온 contextmenu는 스킵
   }
+
+  const copytext = e.target && e.target.innerText ? e.target.innerText : '';
+  if (!copytext) return;
+
+  const ok = await this.copyTextInactiveDoc(copytext, e);
+  const layer = this.termCopyRef && this.termCopyRef.current;
+  if (ok && layer) {
+    layer.className = 'termcopylayer2 active';
+    setTimeout(() => {
+      if (this.termCopyRef && this.termCopyRef.current) {
+        this.termCopyRef.current.className = 'termcopylayer2 active fadeout';
+      }
+    }, 1000);
+  }
+}
 
   copyTextInactiveDoc = async (text, e) =>{
     const doc = (e && e.target && e.target.ownerDocument) || this._doc || document;
