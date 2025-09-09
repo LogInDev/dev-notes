@@ -133,3 +133,55 @@ export default class DateFieldCompat046 extends Component {
     "value": "2025-09-09"
   }
 }
+
+/* ===== DateFieldCompat046 전용 보정 ===== */
+
+/* 1) react-datepicker 기본 헤더/네비게이션 완전히 숨김 (우리는 커스텀 헤더 사용) */
+.df-pop .react-datepicker__header { 
+  display: none !important; 
+}
+.df-pop .react-datepicker__navigation--previous,
+.df-pop .react-datepicker__navigation--next {
+  display: none !important;
+}
+
+/* 2) 전역 스타일이 text-align:center 등으로 달력을 망치지 않도록 리셋 */
+.df-pop,
+.df-pop .react-datepicker {
+  text-align: left !important;
+}
+.df-pop .react-datepicker * {
+  box-sizing: border-box;
+}
+
+/* 3) 그리드가 달력처럼 보이도록 강제 정렬/사이즈 */
+.df-pop .react-datepicker__month { 
+  margin: 4px !important; 
+}
+.df-pop .react-datepicker__week { 
+  display: flex !important; 
+}
+.df-pop .react-datepicker__day-name,
+.df-pop .react-datepicker__day {
+  display: inline-block !important;
+  width: 2.2rem !important;
+  height: 2.2rem !important;
+  line-height: 2.2rem !important;
+  text-align: center !important;
+  margin: 0.166rem !important;
+}
+
+/* 4) 선택/hover(선택 사항, 있으면 더 달력처럼 보임) */
+.df-pop .react-datepicker__day--selected,
+.df-pop .react-datepicker__day--keyboard-selected {
+  background: #2684ff !important;
+  color: #fff !important;
+  border-radius: 4px !important;
+}
+.df-pop .react-datepicker__day:hover {
+  background: #e6f0ff !important;
+  border-radius: 4px !important;
+}
+
+
+
