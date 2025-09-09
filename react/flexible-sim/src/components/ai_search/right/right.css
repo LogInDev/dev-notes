@@ -155,3 +155,58 @@
 
 
 /*datePicker css end*/
+
+
+/* 입력박스 + 아이콘(배경이미지 방식) */
+.datepicker-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 160px;    /* 필요에 맞게 조절 */
+}
+
+.date-input {
+  width: 100%;
+  height: 32px;
+  box-sizing: border-box;
+  padding-right: 30px; /* 아이콘 자리 */
+  border-radius: 4px;
+}
+
+.has-calendar-bg {
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 16px auto;
+  background-image: url("data:image/svg+xml;utf8,\
+    <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239aa4b2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>\
+      <rect x='3' y='4' width='18' height='18' rx='2' ry='2'></rect>\
+      <line x1='16' y1='2' x2='16' y2='6'></line>\
+      <line x1='8' y1='2' x2='8' y2='6'></line>\
+      <line x1='3' y1='10' x2='21' y2='10'></line>\
+    </svg>");
+}
+
+/* 달력 팝업 겹침 방지 */
+.react-datepicker-popper { z-index: 9999; }
+.search-result { position: relative; }
+
+/* 요일 아래 선 제거 */
+.react-datepicker__header { border-bottom: none !important; }
+
+/* 헤더 좌/우 버튼을 <, > 로 */
+.react-datepicker__navigation--previous,
+.react-datepicker__navigation--next { border: none !important; }
+.react-datepicker__navigation--previous::before { content: "<"; font-size: 16px; color: #c9ced6; }
+.react-datepicker__navigation--next::before { content: ">"; font-size: 16px; color: #c9ced6; }
+
+/* 선택된 날짜를 동그란 보라색 */
+.react-datepicker__day--selected,
+.react-datepicker__day--keyboard-selected {
+  background-color: #7c3aed !important; /* 보라 */
+  border-radius: 50% !important;
+  color: #fff !important;
+}
+.react-datepicker__day--selected:hover,
+.react-datepicker__day--keyboard-selected:hover {
+  background-color: #6d28d9 !important;
+}
+
