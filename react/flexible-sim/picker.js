@@ -1,137 +1,135 @@
-// DateField.jsx
+// DateFieldCompat046.jsx
 import React, { Component } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 
-// YYYY-MM-DD 포맷
-function fmtYMD(d) {
-  if (!d) return "";
-  const y = d.getFullYear();
-  const m = (d.getMonth() + 1).toString().padStart(2, "0");
-  const day = d.getDate().toString().padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-// YYYY.MM.DD (입력창 표시용)
-function fmtDot(d) {
-  if (!d) return "";
-  const y = d.getFullYear();
-  const m = (d.getMonth() + 1).toString().padStart(2, "0");
-  const day = d.getDate().toString().padStart(2, "0");
-  return `${y}.${m}.${day}`;
+function pad2(n){ return (n < 10 ? "0" : "") + n; }
+function fmtYMD(d){ if(!d) return ""; return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+function fmtDot(d){ if(!d) return ""; return `${d.getFullYear()}.${pad2(d.getMonth()+1)}.${pad2(d.getDate())}`; }
+function addMonths(d, n){
+  const dt = new Date(d.getFullYear(), d.getMonth() + n, 1);
+  return dt;
 }
 
-const CalendarInput = React.forwardRef(({ value, onClick, placeholder }, ref) => (
-  <div className="dp-input-wrap">
-    <input
-      ref={ref}
-      className="dp-input"
-      value={value || ""}
-      onClick={onClick}
-      readOnly
-      placeholder={placeholder || "날짜 선택"}
-    />
-    <button type="button" className="dp-icon" onClick={onClick} aria-label="달력 열기">📅</button>
-  </div>
-));
-
-export default class DateField extends Component {
-  constructor(props) {
+export default class DateFieldCompat046 extends Component {
+  constructor(props){
     super(props);
-    this.state = { selected: null };
-    this.renderHeader = this.renderHeader.bind(this);
-    this.handleChange = this.handleChange.bind(this);
+    const today = new Date();
+    this.state = {
+      isOpen: false,
+      selected: null,                          // 실제 선택 날짜
+      viewDate: new Date(today.getFullYear(), today.getMonth(), 1) // 달력에 보여줄 "월"
+    };
+    this.toggle = this.toggle.bind(this);
+    this.handleSelect = this.handleSelect.bind(this);
+    this.prevMonth = this.prevMonth.bind(this);
+    this.nextMonth = this.nextMonth.bind(this);
   }
 
-  // 헤더: YYYY.MM + < >
-  renderHeader({ date, decreaseMonth, increaseMonth, prevMonthButtonDisabled, nextMonthButtonDisabled }) {
-    const yyyy = date.getFullYear();
-    const mm = (date.getMonth() + 1).toString().padStart(2, "0");
-    return (
-      <div className="dp-header">
-        <button type="button" className="dp-nav" onClick={decreaseMonth} disabled={prevMonthButtonDisabled}>&lt;</button>
-        <span className="dp-ym">{yyyy}.{mm}</span>
-        <button type="button" className="dp-nav" onClick={increaseMonth} disabled={nextMonthButtonDisabled}>&gt;</button>
-      </div>
-    );
+  toggle(open = !this.state.isOpen){
+    // 팝업 열 때, 현재 선택 or 오늘 기준으로 보기 월 동기화
+    this.setState(state => ({
+      isOpen: open,
+      viewDate: open
+        ? (state.selected
+            ? new Date(state.selected.getFullYear(), state.selected.getMonth(), 1)
+            : new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+        : state.viewDate
+    }));
   }
 
-  handleChange(date) {
-    this.setState({ selected: date });
-    // JSON으로 상위에 전달 (processid는 prop으로 받는다고 가정)
-    if (this.props.onChangeJSON) {
+  handleSelect(date){
+    this.setState({ selected: date, isOpen: false });
+    // JSON 전송(프로세스 아이디 포함)
+    if (this.props.onChangeJSON){
       this.props.onChangeJSON({
         status: "OK",
         message: "datepicker-change",
         data: {
           processid: this.props.processid || "CompleteDate",
-          value: fmtYMD(date) // 서버로는 YYYY-MM-DD
+          value: fmtYMD(date) // 서버에는 YYYY-MM-DD
         }
       });
     }
   }
 
-  render() {
-    const { selected } = this.state;
+  prevMonth(){ this.setState(s => ({ viewDate: addMonths(s.viewDate, -1) })); }
+  nextMonth(){ this.setState(s => ({ viewDate: addMonths(s.viewDate,  1) })); }
+
+  render(){
+    const { isOpen, selected, viewDate } = this.state;
+    const inputValue = selected ? fmtDot(selected) : ""; // 인풋 표시: YYYY.MM.DD
+    const ym = `${viewDate.getFullYear()}.${pad2(viewDate.getMonth()+1)}`;
+    const calendarKey = `${viewDate.getFullYear()}-${viewDate.getMonth()}`; // 보기 월 바뀔 때 리마운트
+
     return (
-      <DatePicker
-        selected={selected}
-        onChange={this.handleChange}
-        dateFormat="yyyy.MM.dd"                // 인풋 표시 포맷
-        customInput={<CalendarInput placeholder={this.props.placeholder} />}
-        renderCustomHeader={this.renderHeader} // 커스텀 헤더 (YYYY.MM + < >)
-        placeholderText="날짜 선택"
-      />
+      <div className="df-wrap" style={{ position:"relative", display:"inline-block" }}>
+        {/* 인풋 + 아이콘 */}
+        <div className="df-input-wrap" onClick={()=>this.toggle(true)} style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
+          <input className="df-input" value={inputValue} readOnly placeholder="YYYY.MM.DD"
+                 style={{ padding:"6px 32px 6px 10px", height:30 }} />
+          <button type="button" className="df-icon" aria-label="달력 열기"
+                  style={{ position:"absolute", right:6, border:0, background:"transparent", cursor:"pointer" }}>
+            📅
+          </button>
+        </div>
+
+        {/* 팝업 달력 */}
+        {isOpen && (
+          <div className="df-pop" style={{
+            position:"absolute", zIndex:9999, top:"110%", left:0,
+            background:"#fff", boxShadow:"0 6px 18px rgba(0,0,0,0.12)", borderRadius:6, padding:8
+          }}>
+            {/* 커스텀 헤더 */}
+            <div className="df-header" style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:12, padding:"6px 6px 8px" }}>
+              <button type="button" className="df-nav" onClick={this.prevMonth}
+                      style={{ border:0, background:"transparent", cursor:"pointer", fontSize:16 }}>
+                &lt;
+              </button>
+              <span className="df-ym" style={{ fontWeight:600 }}>{ym}</span>
+              <button type="button" className="df-nav" onClick={this.nextMonth}
+                      style={{ border:0, background:"transparent", cursor:"pointer", fontSize:16 }}>
+                &gt;
+              </button>
+            </div>
+
+            {/* DatePicker (inline) — 기본 헤더는 CSS로 숨김 */}
+            <div className="df-cal">
+              <DatePicker
+                key={calendarKey}           // 보기 월 바뀔 때 강제 리마운트 → openToDate 반영
+                inline                      // 팝업 안에 인라인 렌더
+                selected={selected}         // 선택 날짜는 유지
+                openToDate={viewDate}       // 이 월을 보여줘
+                onChange={this.handleSelect}
+                // 0.46은 dateFormat 토큰 쓰지 않아도 됨(인풋 표시를 우리가 직접 함)
+                // 필요한 경우 minDate/maxDate 넣어도 OK
+              />
+            </div>
+
+            {/* 바깥 클릭 닫기 필요하면 backdrop 추가해서 관리 */}
+            <div style={{ textAlign:"right", paddingTop:6 }}>
+              <button type="button" onClick={()=>this.toggle(false)} style={{ border:0, background:"transparent", cursor:"pointer" }}>닫기</button>
+            </div>
+          </div>
+        )}
+
+        {/* 기본 헤더 숨기기(0.46) */}
+        <style>{`
+          .df-pop .react-datepicker__header {
+            display: none !important;
+          }
+        `}</style>
+      </div>
     );
   }
 }
 
-/* datefield.css */
-.dp-input-wrap { position: relative; display: inline-flex; align-items: center; }
-.dp-input { padding: 6px 32px 6px 10px; height: 30px; line-height: 30px; }
-.dp-icon {
-  position: absolute; right: 6px; border: 0; background: transparent; cursor: pointer;
-  height: 24px; width: 24px; font-size: 16px; line-height: 24px;
-}
-.dp-header { display:flex; align-items:center; justify-content:center; gap:12px; padding:6px; }
-.dp-ym { font-weight:600; }
-.dp-nav { border:0; background:transparent; cursor:pointer; font-size:16px; }
-.dp-nav:disabled { opacity: .4; cursor:not-allowed; }
-
-
-// Message 컴포넌트 안
-renderColumn = (column) => {
-  switch (column.type) {
-    case "datepicker":
-      return (
-        <DateField
-          processid={column.control && column.control.processid}
-          placeholder="YYYY.MM.DD"
-          onChangeJSON={(payload) => {
-            // 여기서 소켓/HTTP로 서버에 전송
-            // socket.emit("CHAT/CONTROL", payload);
-            console.log("SEND:", payload);
-          }}
-        />
-      );
-
-    // ...다른 타입
-    default:
-      return null;
-  }
-};
 
 {
   "status": "OK",
   "message": "datepicker-change",
   "data": {
     "processid": "CompleteDate",
-    "value": "2025-08-19"
+    "value": "2025-09-09"
   }
-}
-
-
-.react-datepicker__header {
-  display: block !important;
-  height: auto !important;
-  overflow: visible !important;
 }
