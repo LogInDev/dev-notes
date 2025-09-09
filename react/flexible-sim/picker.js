@@ -130,4 +130,8 @@ renderColumn = (column) => {
 }
 
 
-
+.react-datepicker__header {
+  display: block !important;
+  height: auto !important;
+  overflow: visible !important;
+}
