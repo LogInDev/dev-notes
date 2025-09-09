@@ -35,6 +35,28 @@ class RightSide extends Component {
                         className="date-input"
                         customInput={<CustomInput />}
                     />
+                    {/* 1) 날짜 표시용 input (그냥 일반 input) */}
+          <div className="datepicker-wrapper">
+            <input
+              type="text"
+              value={moment(startDate).format('YYYY.MM.DD')}
+              readOnly
+              className="date-input has-calendar-bg"
+            />
+            {/* 아이콘을 요소로 쓰고 싶으면 아래 span 사용 (배경이미지 방식이면 필요 X) */}
+            {/* <span className="calendar-icon">📅</span> */}
+          </div>
+
+          {/* 2) 항상 보이는 달력 (inline) */}
+          <DatePicker
+            selected={startDate}
+            onChange={this.handleChange}
+            dateFormat="YYYY.MM.DD"
+            dateFormatCalendar="YYYY.MM"  // 헤더: 2025.09
+            inline
+          />
+
+        
 
                     {messages.length === 0 && (
                         <div className="msg msg--hint">왼쪽에서 검색 이력을 선택하세요.</div>
