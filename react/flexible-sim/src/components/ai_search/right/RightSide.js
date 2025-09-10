@@ -113,6 +113,13 @@ class RightSide extends Component {
           flex: '0 0 auto' // flex 컨테이너에서 고정 폭
         }}
       >
+      
+      /* 예: 좌측 메인 + 우측 RightSide */
+<div style={{display:'flex', width:'100%', height:'100%'}}>
+  <main style={{flex:'1 1 auto', minWidth:0, background:'#f8fafc'}}>…메시지 리스트…</main>
+  <RightSide minWidth={280} maxWidth={720} defaultWidth={360}/>
+</div>
+      
         {/* ⬅️ 좌측 리사이즈 핸들 */}
         <div
           className="rs-resizer"
