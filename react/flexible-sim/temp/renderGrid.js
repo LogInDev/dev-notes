@@ -1,55 +1,65 @@
-// 메시지 클래스 컴포넌트 내부 메서드로 추가 (React 16.14)
-renderGrid = (col) => {
-    const ctl = col && col.control ? col.control : {};
-    const cols = Math.max(1, ctl.columns || 1);
-    const gap  = typeof ctl.gap === 'number' ? ctl.gap : 1;
-    const rowH = ctl.rowHeight || 'minmax(32px, auto)';
-    const cells = Array.isArray(ctl.cells) ? ctl.cells : [];
+import React, { Component } from 'react';
+import io from 'socket.io-client';
+
+class ChannelList extends Component {
+    
+    const channelData = {
+  channel_name: [
+    "achannel", "bchannel", "cchannel", "dchannel", "echannel"
+  ],
+  dmchannel: [
+    "dmAchannel", "dmBchannel", "dmCchannel", "dmDchannel"
+  ]
+};
+  constructor(props) {
+    super(props);
+    this.state = {
+      channel_name: [],
+      dmchannel: []
+    };
+
+    this.socket = io("http://localhost:4000"); // 서버 주소
+  }
+
+  componentDidMount() {
+    // 서버에서 채널 리스트를 받음
+    this.socket.on("channelList", (data) => {
+      this.setState({
+        channel_name: data.channel_name || [],
+        dmchannel: data.dmchannel || []
+      });
+    });
+
+    // 최초 요청
+    this.socket.emit("getChannelList");
+  }
+
+  componentWillUnmount() {
+    // 메모리 누수 방지를 위해 이벤트 제거
+    this.socket.off("channelList");
+  }
+
+  render() {
+    const { channel_name, dmchannel } = this.state;
 
     return (
-        <div
-            className={cx('rn-grid', { inactive: ctl.active === false })}
-            style={{
-                display: 'grid',
-                gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-                gridAutoRows: rowH,
-                gap,
-                background: gap ? '#e6e8eb' : undefined, // gap을 테이블 보더처럼 보이게
-            }}
-            role="grid"
-            aria-colcount={cols}
-        >
-            {cells.map((cell, i) => {
-                const r = Math.max(1, cell.r || 1);
-                const c = Math.max(1, cell.c || 1);
-                const w = Math.max(1, cell.w || 1);
-                const h = Math.max(1, cell.h || 1);
-                const align = cell.align || 'left';
+      <div>
+        {/* Channel */}
+        {channel_name.map((ch, idx) => (
+          <div key={`channel-${idx}`}>
+            - [Channel] {ch}
+          </div>
+        ))}
 
-                const style = {
-                    gridRow:    `${r} / span ${h}`,
-                    gridColumn: `${c} / span ${w}`,
-                    background: cell.bg || '#fff',
-                    color:      cell.fg || undefined,
-                    fontWeight: cell.bold ? 600 : 400,
-                };
-
-                return (
-                    <div
-                        key={i}
-                        className={cx('rn-gcell', align, { band: cell.variant === 'band' })}
-                        style={style}
-                        role="gridcell"
-                        data-r={r}
-                        data-c={c}
-                        data-w={w}
-                        data-h={h}
-                        onClick={() => this.handleGridCellClick && this.handleGridCellClick(ctl.processid, cell, i)}
-                    >
-                        {cell.text}
-                    </div>
-                );
-            })}
-        </div>
+        {/* DM */}
+        {dmchannel.map((dm, idx) => (
+          <div key={`dm-${idx}`}>
+            - [DM] {dm}
+          </div>
+        ))}
+      </div>
     );
-};
+  }
+}
+
+export default ChannelList;
