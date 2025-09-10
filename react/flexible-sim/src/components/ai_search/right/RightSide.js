@@ -54,36 +54,31 @@ class RightSide extends Component {
     this.setState({ startDate: date });
   }
   
-  
-
   onPointerDown(e) {
-    // 좌측 핸들 잡을 때만
-    this.setState({ _dragging: true });
-    this.startX = e.clientX;
-    this.startW = this.rightEl ? this.rightEl.offsetWidth : this.state.panelWidth;
+  this.setState({ _dragging: true });
+  this.startX = e.clientX;
+  this.startW = this.rightEl ? this.rightEl.offsetWidth : this.state.panelWidth;
 
-    // 드래그 UX 개선
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    // 포인터 캡처(드래그 중 바깥으로 나가도 추적)
-    if (e.target.setPointerCapture) {
-      try { e.target.setPointerCapture(e.pointerId); } catch(_) {}
-    }
-  }
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+}
 
-  onPointerMove(e) {
-    if (!this.state._dragging) return;
+onPointerMove(e) {
+  if (!this.state._dragging) return;
 
-    const dx = this.startX - e.clientX; // 좌로 끌면 dx > 0 (너비 증가), 우로 끌면 dx < 0 (너비 감소)
-    let next = this.startW + dx;
-    if (next < this.minWidth) next = this.minWidth;
-    if (next > this.maxWidth) next = this.maxWidth;
+  // 방향 그대로 반영
+  const dx = this.startX - e.clientX;
+  let next = this.startW + dx;
 
-    if (next !== this.state.panelWidth) {
-      this.setState({ panelWidth: next }, () => {
-        window.localStorage.setItem(LS_KEY, String(this.state.panelWidth));
-        // 필요하면 콜백
-  
+  // 최소/최대 폭 제한
+  if (next < this.minWidth) next = this.minWidth;
+  if (next > this.maxWidth) next = this.maxWidth;
+
+  this.setState({ panelWidth: next }, () => {
+    window.localStorage.setItem(LS_KEY, String(this.state.panelWidth));
+  });
+}
+
   
 
   onPointerDown(e) {
