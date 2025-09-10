@@ -1,41 +1,127 @@
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
-import { submitSearch } from '../../../store/actions/ai'; // ★ 추가
-import './right.css';
+import moment from 'moment';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import moment from 'moment';
-import CustomInput from './CustomInput';
+import './right.css';
+
+const LS_KEY = 'cube.rightside.width';
 
 class RightSide extends Component {
-    constructor(props) {
-        super(props);
-        this.state = {
-            startDate: moment() // 기본 선택 날짜
-        };
-        this.handleChange = this.handleChange.bind(this);
-    }
+  constructor(props) {
+    super(props);
 
-    handleChange(date) {
-        this.setState({ startDate: date });
-        // 필요하다면 Redux dispatch도 가능
-        // this.props.dispatch(submitSearch({ date }));
+    const defaultWidth = props.defaultWidth || 360;
+    const minWidth = props.minWidth || 280;
+    const maxWidth = props.maxWidth || 720;
+
+    const saved = Number(window.localStorage.getItem(LS_KEY));
+    const initial = isFinite(saved) ? saved : defaultWidth;
+
+    this.state = {
+      panelWidth: Math.max(minWidth, Math.min(maxWidth, initial)),
+      startDate: moment(),
+      _dragging: false
+    };
+
+    // 바인딩
+    this.onPointerDown = this.onPointerDown.bind(this);
+    this.onPointerMove = this.onPointerMove.bind(this);
+    this.onPointerUp = this.onPointerUp.bind(this);
+    this.handleChangeDate = this.handleChangeDate.bind(this);
+
+    // 리사이즈 상태
+    this.startX = 0;
+    this.startW = 0;
+
+    // 제한
+    this.minWidth = minWidth;
+    this.maxWidth = maxWidth;
+  }
+
+  componentDidMount() {
+    document.addEventListener('pointermove', this.onPointerMove);
+    document.addEventListener('pointerup', this.onPointerUp);
+  }
+
+  componentWillUnmount() {
+    document.removeEventListener('pointermove', this.onPointerMove);
+    document.removeEventListener('pointerup', this.onPointerUp);
+    this.teardownDraggingEffects();
+  }
+
+  handleChangeDate(date) {
+    this.setState({ startDate: date });
+  }
+
+  onPointerDown(e) {
+    // 좌측 핸들 잡을 때만
+    this.setState({ _dragging: true });
+    this.startX = e.clientX;
+    this.startW = this.rightEl ? this.rightEl.offsetWidth : this.state.panelWidth;
+
+    // 드래그 UX 개선
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    // 포인터 캡처(드래그 중 바깥으로 나가도 추적)
+    if (e.target.setPointerCapture) {
+      try { e.target.setPointerCapture(e.pointerId); } catch(_) {}
     }
-    render(){
-        const { messages } = this.props;
-        const { startDate } = this.state;
-        return (
-            <section className="ai-search-right">
-                <div className="search-result native-scroll">
-                    <DatePicker
-                        selected={startDate}
-                        onChange={this.handleChange}
-                        dateFormat="YYYY-MM-DD"
-                        dateFormatCalendar="YYYY.MM"
-                        className="date-input"
-                        customInput={<CustomInput />}
-                    />
-                    {/* 1) 날짜 표시용 input (그냥 일반 input) */}
+  }
+
+  onPointerMove(e) {
+    if (!this.state._dragging) return;
+
+    const dx = this.startX - e.clientX; // 좌로 끌면 dx > 0 (너비 증가), 우로 끌면 dx < 0 (너비 감소)
+    let next = this.startW + dx;
+    if (next < this.minWidth) next = this.minWidth;
+    if (next > this.maxWidth) next = this.maxWidth;
+
+    if (next !== this.state.panelWidth) {
+      this.setState({ panelWidth: next }, () => {
+        window.localStorage.setItem(LS_KEY, String(this.state.panelWidth));
+        // 필요하면 콜백
+        if (typeof this.props.onResize === 'function') {
+          this.props.onResize(this.state.panelWidth);
+        }
+      });
+    }
+  }
+
+  onPointerUp() {
+    if (!this.state._dragging) return;
+    this.setState({ _dragging: false }, () => {
+      this.teardownDraggingEffects();
+    });
+  }
+
+  teardownDraggingEffects() {
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }
+
+  render() {
+    const { messages } = this.props;
+    const { startDate, panelWidth, _dragging } = this.state;
+
+    return (
+      <section
+        className={`ai-search-right ${_dragging ? 'is-dragging' : ''}`}
+        ref={el => (this.rightEl = el)}
+        style={{
+          width: panelWidth,
+          flex: '0 0 auto' // flex 컨테이너에서 고정 폭
+        }}
+      >
+        {/* ⬅️ 좌측 리사이즈 핸들 */}
+        <div
+          className="rs-resizer"
+          onPointerDown={this.onPointerDown}
+          title="드래그하여 패널 너비 조절"
+        />
+
+        <div className="search-result native-scroll">
+          {/* 상단: 날짜 인풋(표시) */}
           <div className="datepicker-wrapper">
             <input
               type="text"
@@ -43,36 +129,34 @@ class RightSide extends Component {
               readOnly
               className="date-input has-calendar-bg"
             />
-            {/* 아이콘을 요소로 쓰고 싶으면 아래 span 사용 (배경이미지 방식이면 필요 X) */}
-            {/* <span className="calendar-icon">📅</span> */}
           </div>
 
-          {/* 2) 항상 보이는 달력 (inline) */}
+          {/* 항상 보이는 달력 */}
           <DatePicker
             selected={startDate}
-            onChange={this.handleChange}
+            onChange={this.handleChangeDate}
             dateFormat="YYYY.MM.DD"
-            dateFormatCalendar="YYYY.MM"  // 헤더: 2025.09
+            dateFormatCalendar="YYYY.MM"
             inline
           />
 
-        
+          {messages.length === 0 && (
+            <div className="msg msg--hint">왼쪽에서 검색 이력을 선택하세요.</div>
+          )}
+          {messages.map(m => (
+            <div key={m.id || m.seq} className={`msg ${m.role === 'user' ? 'msg--me' : 'msg--bot'}`}>
+              {m.text}
+            </div>
+          ))}
+        </div>
 
-                    {messages.length === 0 && (
-                        <div className="msg msg--hint">왼쪽에서 검색 이력을 선택하세요.</div>
-                    )}
-                    {messages.map(m=>(
-                        <div key={m.id || m.seq} className={`msg ${m.role==='user'?'msg--me':'msg--bot'}`}>
-                            {m.text}
-                        </div>
-                    ))}
-                </div>
-                <div className="composer">
-                    <input placeholder="(지금은 비활성)"/>
-                    <button disabled>🔎</button>
-                </div>
-            </section>
-        );
-    }
+        <div className="composer">
+          <input placeholder="(지금은 비활성)"/>
+          <button disabled>🔎</button>
+        </div>
+      </section>
+    );
+  }
 }
-export default connect(s=>({ messages:s.result.messages }))(RightSide);
+
+export default connect(s => ({ messages: s.result.messages }))(RightSide);
