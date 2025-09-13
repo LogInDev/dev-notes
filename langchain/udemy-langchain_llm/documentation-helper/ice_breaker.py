@@ -1,7 +1,10 @@
 from dotenv import load_dotenv
 import os
+
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from sympy.physics.units.definitions.dimension_definitions import information
 
 information = """
@@ -23,15 +26,76 @@ if __name__ == "__main__":
         2. two interesting facts about them
     """
 
-# PromptTemplate 객체 생성
-    summary_prompt_templete = PromptTemplate(input_variables="information", template=summary_template)
+    # PromptTemplate 객체 생성
+    summary_prompt_templete = PromptTemplate(
+        input_variables="information", template=summary_template
+    )
 
     # 환경 변수에서 API 키 가져오기 - 1. 직접 가져와서 적용 또는 pycham 실행 시 환경변수로 적용
-    load_dotenv(".env")
-    api_key = os.getenv("OPENAI_API_KEY")
-    llm = ChatOpenAI(temperature=0, name="gpt-4o", api_key=api_key)
+    # load_dotenv(".env")
+    # api_key = os.getenv("OPENAI_API_KEY")
+    # llm = ChatOpenAI(temperature=0, model="gpt-4o", api_key=api_key)
 
-    chain = summary_prompt_templete | llm
+    # llm = ChatOllama(model="llama3.2")
+    llm = ChatOllama(model="mistral")
+    chain = summary_prompt_templete | llm | StrOutputParser()
     res = chain.invoke(input={"information": information})
 
     print(res)
+
+# Console Result
+# 1. ChatOpenAI
+    # Hello LangChain!
+    # content='
+    #   1. 일론 리브 머스크는 국제적으로 유명한 사업가이자 기업가로, 테슬라, 스페이스X, X(구 트위터), 그리고 정부효율부(DOGE)의 리더십으로 알려져 있습니다.
+    #   그는 2021년 이후 세계에서 가장 부유한 사람으로 자리매김했으며, 현재 순자산은 4,247억 달러로 추산됩니다.\n\n2.
+    #   머스크는 우주 기술 회사인 SpaceX를 설립하여 재사용 가능한 로켓과 상업용 우주 비행의 혁신을 이끌었으며, 전기 자동차 제조업체인 Tesla의 CEO이자 제품 설계자로서 전기 자동차의 선두주자가 되었습니다.'
+    # additional_kwargs={'refusal': None}
+    # response_metadata={
+    #     'token_usage': {
+    #         'completion_tokens': 252,
+    #         'prompt_tokens': 905,
+    #         'total_tokens': 1157,
+    #         'completion_tokens_details': {
+    #             'accepted_prediction_tokens': 0,
+    #             'audio_tokens': 0,
+    #             'reasoning_tokens': 0,
+    #             'rejected_prediction_tokens': 0
+    #         },
+    #         'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}},
+    #         'model_name': 'gpt-3.5-turbo-0125',
+    #         'system_fingerprint': None,
+    #         'id': 'chatcmpl-CFHGomNNxXVvH6z8pkJ2gG8WUDKK9',
+    #         'service_tier': 'default',
+    #         'finish_reason': 'stop',
+    #         'logprobs': None
+    #     }
+    # id='run--7986a61f-1850-4e48-8372-0a993873aa3f-0'
+    # usage_metadata={
+    #     'input_tokens': 905,
+    #     'output_tokens': 252,
+    #     'total_tokens': 1157,
+    #     'input_token_details': {'audio': 0, 'cache_read': 0},
+    #     'output_token_details': {'audio': 0, 'reasoning': 0}
+    # }
+
+# 2. ChatOllama
+    # Hello LangChain!
+# content="Here is the information about Elon Musk:\n\n**
+#   Summary:**\nElon Musk is a renowned international business magnate and entrepreneur, known for his leadership roles in Tesla, SpaceX, X (formerly Twitter),
+#       and Dogecoin. He has become one of the richest people in the world since 2021, with an estimated net worth of $4.247 billion as of May 2025.\n\n
+#       **Interesting Facts:**\n\n1. **From South Africa to Global Success:** Elon Musk was born in Pretoria, South Africa, and moved to Canada at the age of 17.
+#       He later became a U.S. citizen in 2002.\n2. **Pioneering Space Exploration:** In 2002, Musk founded SpaceX,
+#       which has revolutionized space technology with its reusable rockets and commercial spaceflight services.
+#       His ambitious goal is to make humanity a multiplanetary species.\n\nLet me know if you'd like me to add anything else!"
+#  additional_kwargs={}
+#  response_metadata={
+#       'model': 'llama3.2',
+#       'created_at': '2025-09-13T10:22:41.027606Z',
+#       'done': True, 'done_reason': 'stop', 'total_duration': 2787052042,
+#       'load_duration': 485933292, 'prompt_eval_count': 611,
+#       'prompt_eval_duration': 468773167, 'eval_count': 190,
+#       'eval_duration': 1831905333, 'model_name': 'llama3.2'
+#  }
+#  id='run--997933c2-4873-4b89-8d23-b1ab073b5045-0'
+#  usage_metadata={'input_tokens': 611, 'output_tokens': 190, 'total_tokens': 801}

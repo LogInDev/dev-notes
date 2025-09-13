@@ -29,6 +29,7 @@ langchain-community = "*"
 langchainhub = "*"
 black = "*"
 python-dotenv = "*"
+langchain-ollama = "*"
 
 [dev-packages]
 ipykernel = "*"
