@@ -61,3 +61,26 @@ moveScroll(height) {
   this.precurrentScrollTop = this.refs.chatlistin3.scrollTop;
   // ...
 }
+
+moveScroll(height) {
+  const el = this.refs.chatlistin3;
+  if (!el) return;
+  const doc = this.props.popupDocument || el.ownerDocument;
++ const idSelector = `#aiviewMsg-${this.props.popupId}`; // ← 휠 스크롤용 셀렉터 지정
+
+  if (!this._inited) {
+-   const init = new slimscroll({ height: '100%', doc }, [el]);
++   const init = new slimscroll({ height: '100%', doc, idSelector }, [el]);
+    init.init();
+    this._inited = true;
+  }
+
+- const scroller = new slimscroll({ scrollTo: height || '100000', doc }, [el]);
++ const scroller = new slimscroll({ scrollTo: height || '100000', doc, idSelector }, [el]);
+  scroller.init();
+
+  this.prevScrollHeight = el.scrollHeight;
+  this.precurrentScrollTop = el.scrollTop;
+  if (this.isFirst) this.isFirst = false;
+}
+
