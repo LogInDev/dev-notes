@@ -1,80 +1,59 @@
-/**
- * Slimscroll (Popup-safe)
- * Based on original code by Yaw Joseph Etse (MIT)
- * Mod: use ownerDocument/defaultView to work in react-new-window popups
- */
 'use strict';
 
-var classie = require('classie');
-var extend = require('util-extend');
-var domhelper = require('domhelper');
+var classie = require('classie'),
+  extend = require('util-extend'),
+  domhelper = require('domhelper');
 
-var slimscroll = function (options, elementsArray) {
+var slimscroll = function(options, elementsArray) {
   var defaults = {
-    idSelector: 'body',
-    width: 'auto',
-    height: '250px',
-    size: '7px',
-    color: '#000',
-    position: 'right',
-    distance: '1px',
-    start: 'top',
-    opacity: 0.4,
-    alwaysVisible: false,
-    disableFadeOut: false,
-    railVisible: false,
-    railColor: '#333',
-    railOpacity: 0.2,
-    railDraggable: true,
-    railClass: 'slimScrollRail',
-    barClass: 'slimScrollBar',
-    wrapperClass: 'slimScrollDiv',
-    allowPageScroll: false,
-    wheelStep: 20,
-    touchScrollStep: 200,
-    addedOriginalClass: 'originalScrollableElement',
-    borderRadius: '7px',
-    railBorderRadius: '7px',
-  };
+      idSelector: 'body',
+      width: 'auto',
+      height: '250px',
+      size: '7px',
+      color: '#000',
+      position: 'right',
+      distance: '1px',
+      start: 'top',
+      opacity: 0.4,
+      alwaysVisible: false,
+      disableFadeOut: false,
+      railVisible: false,
+      railColor: '#333',
+      railOpacity: 0.2,
+      railDraggable: true,
+      railClass: 'slimScrollRail',
+      barClass: 'slimScrollBar',
+      wrapperClass: 'slimScrollDiv',
+      allowPageScroll: false,
+      wheelStep: 20,
+      touchScrollStep: 200,
+      addedOriginalClass: 'originalScrollableElement',
+      borderRadius: '7px',
+      railBorderRadius: '7px',
+      // 👇 추가: 팝업 window/document 주입용
+      doc: null,
+    },
+    o = extend(defaults, options),
+    baseDoc = o.doc || (typeof document === 'object' ? document : null),
+    thisElements = elementsArray ? elementsArray : (baseDoc ? baseDoc.querySelectorAll(options.idSelector) : []),
+    me, rail, bar, barHeight, minBarHeight = 10,
+    mousedownPageY, mousedownT, isDragg, currentBar, currentTouchDif,
+    releaseScroll, isOverBar, percentScroll, queueHide, lastScroll, isOverPanel;
 
-  var o = extend(defaults, options);
-
-  // ★ baseDoc/baseWin: elementsArray 기준으로 문서/윈도우 결정
-  var _firstEl =
-    (elementsArray && elementsArray[0]) ||
-    (typeof document !== 'undefined' &&
-      document.querySelector &&
-      document.querySelector(o.idSelector));
-  var baseDoc =
-    (_firstEl && _firstEl.ownerDocument) ||
-    (typeof document !== 'undefined' ? document : null);
-  var baseWin = baseDoc ? baseDoc.defaultView || window : (typeof window !== 'undefined' ? window : null);
-
-  // ★ 기본 요소 선택도 baseDoc 기준으로
-  var thisElements =
-    elementsArray ||
-    (baseDoc ? baseDoc.querySelectorAll(o.idSelector) : []);
-
-  var me, rail, bar, barHeight, minBarHeight = 10;
-  var mousedownPageY, mousedownT, isDragg, currentBar, currentTouchDif;
-  var releaseScroll, isOverBar, percentScroll, queueHide, lastScroll, isOverPanel;
-
-  this.init = function () {
+  this.init = function() {
     for (var x = 0; x < thisElements.length; x++) {
-      var divS = '<div></div>';
+      var touchDif;
       releaseScroll = false;
-
       me = thisElements[x];
-      if (!me) continue;
 
-      // ★ 이 요소 기준 문서/윈도우 재계산 (팝업 안전)
-      var doc = me.ownerDocument || baseDoc;
-      var win = (doc && (doc.defaultView || window)) || baseWin;
+      // ✅ 이 엘리먼트가 속한 문서를 기준으로 이벤트/생성 처리
+      var doc = me && me.ownerDocument ? me.ownerDocument : baseDoc;
+      if (!doc) continue;
 
       classie.addClass(me, o.addedOriginalClass);
 
-      // 재바인딩 방지
-      if (classie.hasClass(me.parentNode, o.wrapperClass)) {
+      // 이미 래핑되어 있으면 기존 인스턴스 재사용
+      if (me.parentNode && classie.hasClass(me.parentNode, o.wrapperClass)) {
         var offset = me.scrollTop;
         bar = me.parentNode.querySelector('.' + o.barClass);
         rail = me.parentNode.querySelector('.' + o.railClass);
@@ -85,9 +64,8 @@ var slimscroll = function (options, elementsArray) {
           if ('height' in options && options.height === 'auto') {
             me.parentNode.style.height = 'auto';
             me.style.height = 'auto';
-            var height = me.parentNode.parentNode.scrollHeight;
-            // ★ 오타 수정: me.parent ➜ me.parentNode
-            me.parentNode.style.height = height + 'px';
+            var height = me.parentNode.parentNode ? me.parentNode.parentNode.scrollHeight : me.scrollHeight;
+            if (me.parentNode) me.parentNode.style.height = height + 'px';
             me.style.height = height + 'px';
           }
 
@@ -101,16 +79,15 @@ var slimscroll = function (options, elementsArray) {
             domhelper.unwrapElement(me);
             return;
           }
-
           scrollContent(offset, false, true, me);
         }
         continue;
       }
 
-      // 높이 결정
-      o.height = options.height === 'auto' ? me.parentNode.offsetHeight + 'px' : options.height;
+      // 높이 계산
+      o.height = options.height === 'auto' ? (me.parentNode ? me.parentNode.offsetHeight : me.offsetHeight) : options.height;
 
-      // wrapper 생성
+      // wrapper
       var wrapper = doc.createElement('div');
       classie.addClass(wrapper, o.wrapperClass);
       wrapper.style.position = 'relative';
@@ -118,7 +95,7 @@ var slimscroll = function (options, elementsArray) {
       wrapper.style.width = o.width;
       wrapper.style.height = o.height;
 
-      // 컨테이너 스타일
+      // 원본 div 스타일
       me.style.overflow = 'hidden';
       me.style.width = o.width;
       me.style.height = o.height;
@@ -146,9 +123,6 @@ var slimscroll = function (options, elementsArray) {
       bar.style.opacity = o.opacity;
       bar.style.display = o.alwaysVisible ? 'block' : 'none';
       bar.style['border-radius'] = o.borderRadius;
-      bar.style.BorderRadius = o.borderRadius;
-      bar.style.MozBorderRadius = o.borderRadius;
-      bar.style.WebkitBorderRadius = o.borderRadius;
       bar.style.zIndex = 99;
 
       if (o.position === 'right') {
@@ -159,17 +133,13 @@ var slimscroll = function (options, elementsArray) {
         bar.style.left = o.distance;
       }
 
-      // wrap
       domhelper.elementWrap(me, wrapper);
-
-      // append
       me.parentNode.appendChild(bar);
       me.parentNode.appendChild(rail);
 
-      // 초기 bar height
       getBarHeight();
 
-      // 이벤트 바인딩 (★ doc / win 기준)
+      // 이벤트: 반드시 ownerDocument 기준
       bar.addEventListener('mousedown', mousedownEventHandler);
       doc.addEventListener('mouseup', mouseupEventHandler);
       bar.addEventListener('selectstart', selectstartEventHandler);
@@ -182,90 +152,90 @@ var slimscroll = function (options, elementsArray) {
 
       me.addEventListener('mouseover', scrollContainerMouseOverEventHandler);
       me.addEventListener('mouseleave', scrollContainerMouseLeaveEventHandler);
-      // ★ 파이어폭스 휠 이벤트
+
+      // 크로스 브라우저 휠
       me.addEventListener('DOMMouseScroll', mouseWheelEventHandler, false);
-      me.addEventListener('mousewheel', mouseWheelEventHandler, { passive: false });
+      me.addEventListener('mousewheel', mouseWheelEventHandler, false);
+
+      // 터치 스크롤(문서 기준)
+      doc.addEventListener('touchmove', scrollContainerTouchMoveEventHandler, { passive: false });
     }
 
-    // 시작 위치
+    // start 위치 처리
     if (o.start === 'bottom') {
       if (bar && me) {
         bar.style.top = (me.offsetHeight - bar.offsetHeight) + 'px';
         scrollContent(0, true);
       }
     } else if (o.start !== 'top') {
-      // ★ 오타 수정: querSelector ➜ querySelector
-      var startEl = baseDoc && baseDoc.querySelector ? baseDoc.querySelector(o.start) : null;
-      if (startEl) {
-        scrollContent(domhelper.getPosition(startEl).top, null, true);
-        if (!o.alwaysVisible) {
-          domhelper.elementHideCss(bar);
-        }
+      // 오탈자 수정: querSelector -> querySelector
+      var target = baseDoc ? baseDoc.querySelector(o.start) : null;
+      if (target && target.getBoundingClientRect) {
+        var top = target.getBoundingClientRect().top + (baseDoc.defaultView ? baseDoc.defaultView.pageYOffset : 0);
+        scrollContent(top, null, true, me);
       }
-    }
-
-    // ★ 터치 이동은 baseDoc 기준으로
-    if (baseDoc) {
-      baseDoc.addEventListener('touchmove', scrollContainerTouchMoveEventHandler, { passive: false });
+      if (!o.alwaysVisible && bar) {
+        domhelper.elementHideCss(bar);
+      }
     }
   }.bind(this);
 
   function getBarHeight() {
-    if (!bar) bar = currentBar;
     if (!bar || !me) return;
-
     barHeight = Math.max((me.offsetHeight / me.scrollHeight) * me.offsetHeight, minBarHeight);
     bar.style.height = barHeight + 'px';
-
     var display = me.offsetHeight === barHeight ? 'none' : 'block';
     bar.style.display = display;
   }
 
   function scrollContent(y, isWheel, isJump, element, _bar, isTouch) {
     releaseScroll = false;
-    var delta = y;
-    if (element) me = element;
+    me = element || me;
+    if (!me) return;
     var doc = me.ownerDocument || baseDoc;
+    bar = me.parentNode ? me.parentNode.querySelector('.' + o.barClass) : _bar;
 
-    var barEl = _bar || (me.parentNode ? me.parentNode.querySelector('.' + o.barClass) : null);
-    if (!barEl || !me) return;
-    var maxTop = me.offsetHeight - barEl.offsetHeight;
+    var maxTop = me.offsetHeight - (bar ? bar.offsetHeight : 0);
+    var delta = y;
 
-    if (isWheel) {
-      delta = parseInt(barEl.style.top || '0', 10) + ((y * parseInt(o.wheelStep, 10)) / 100) * barEl.offsetHeight;
+    if (isWheel && bar) {
+      delta = parseInt(bar.style.top || '0', 10) + ((y * parseInt(o.wheelStep, 10)) / 100) * bar.offsetHeight;
       delta = Math.min(Math.max(delta, 0), maxTop);
       delta = y > 0 ? Math.ceil(delta) : Math.floor(delta);
-      barEl.style.top = delta + 'px';
-    } else if (isTouch) {
-      percentScroll = parseInt(barEl.style.top || '0', 10) / (me.offsetHeight - barEl.offsetHeight);
+      bar.style.top = delta + 'px';
+    } else if (isTouch && bar) {
+      percentScroll = parseInt(bar.style.top || '0', 10) / (me.offsetHeight - bar.offsetHeight);
       delta = percentScroll * (me.scrollHeight - me.offsetHeight);
-      barEl.style.top = delta + 'px';
+      bar.style.top = delta + 'px';
     }
 
-    percentScroll = parseInt(barEl.style.top || '0', 10) / (me.offsetHeight - barEl.offsetHeight);
-    delta = percentScroll * (me.scrollHeight - me.offsetHeight);
+    if (bar) {
+      percentScroll = parseInt(bar.style.top || '0', 10) / (me.offsetHeight - bar.offsetHeight);
+      delta = percentScroll * (me.scrollHeight - me.offsetHeight);
+    }
 
-    if (isJump) {
+    if (isJump && bar) {
       delta = y;
       var offsetTop = (delta / me.scrollHeight) * me.offsetHeight;
       offsetTop = Math.min(Math.max(offsetTop, 0), maxTop);
-      barEl.style.top = offsetTop + 'px';
+      bar.style.top = offsetTop + 'px';
     }
 
     me.scrollTop = delta;
 
-    // 커스텀 이벤트
-    var newevent = (doc && doc.createEvent) ? doc.createEvent('Event') : null;
-    if (newevent) {
-      newevent.initEvent('slimscrolling', true, true);
-      try { me.dispatchEvent(newevent); } catch (err) {}
+    // 이벤트 생성도 해당 문서 기준
+    var evDoc = me.ownerDocument || baseDoc;
+    if (evDoc) {
+      var ev = evDoc.createEvent('Event');
+      ev.initEvent('slimscrolling', true, true);
+      me.dispatchEvent(ev);
     }
 
-    showBar(barEl);
-    hideBar(barEl);
+    showBar();
+    hideBar();
   }
 
-  function showBar(barEl) {
+  function showBar() {
     getBarHeight();
     clearTimeout(queueHide);
 
@@ -273,11 +243,11 @@ var slimscroll = function (options, elementsArray) {
       releaseScroll = o.allowPageScroll;
       if (lastScroll !== percentScroll) {
         var msg = ~~percentScroll === 0 ? 'top' : 'bottom';
-        var doc = me.ownerDocument || baseDoc;
-        var newevent = (doc && doc.createEvent) ? doc.createEvent('Event') : null;
-        if (newevent) {
-          newevent.initEvent('slimscroll', true, true);
-          try { me.dispatchEvent(newevent); } catch (err) {}
+        var evDoc = me && (me.ownerDocument || baseDoc);
+        if (evDoc) {
+          var ev = evDoc.createEvent('Event');
+          ev.initEvent('slimscroll', true, true);
+          if (me) me.dispatchEvent(ev, msg);
         }
       }
     } else {
@@ -285,29 +255,27 @@ var slimscroll = function (options, elementsArray) {
     }
     lastScroll = percentScroll;
 
-    if (barHeight >= me.offsetHeight) {
+    if (barHeight >= (me ? me.offsetHeight : 0)) {
       releaseScroll = true;
       return;
     }
-    var _bar = barEl || bar;
-    if (_bar) {
-      _bar.style.transition = 'opacity .5s';
-      _bar.style.opacity = o.opacity;
+    if (bar) {
+      bar.style.transition = 'opacity .5s';
+      bar.style.opacity = o.opacity;
     }
-    if (rail && o.railVisible) {
-      rail.style.transform = 'opacity .5s';
+    if (o.railVisible && rail) {
+      rail.style.transition = 'opacity .5s'; // transform → transition 수정
       rail.style.opacity = 1;
     }
   }
 
-  function hideBar(barEl) {
+  function hideBar() {
     if (!o.alwaysVisible) {
-      queueHide = setTimeout(function () {
+      queueHide = setTimeout(function() {
         if (!(o.disableFadeOut && isOverPanel) && !isOverBar && !isDragg) {
-          var _bar = barEl || bar;
-          if (_bar) {
-            _bar.style.transition = 'opacity 1s';
-            _bar.style.opacity = 0;
+          if (bar) {
+            bar.style.transition = 'opacity 1s';
+            bar.style.opacity = 0;
           }
           if (rail) {
             rail.style.transition = 'opacity 1s';
@@ -320,7 +288,6 @@ var slimscroll = function (options, elementsArray) {
 
   function mouseWheelEventHandler(e) {
     if (!isOverPanel) return;
-
     var delta = 0;
     if (e.wheelDelta) delta = -e.wheelDelta / 120;
     if (e.detail) delta = e.detail / 3;
@@ -328,13 +295,11 @@ var slimscroll = function (options, elementsArray) {
     var target = e.target;
     var parentWrapper = domhelper.getParentElement(target, o.wrapperClass);
     if (parentWrapper) {
-      var content = parentWrapper.querySelector('.' + o.addedOriginalClass + o.idSelector) || me;
-      scrollContent(delta, true, null, content);
+      var el = parentWrapper.querySelector('.' + o.addedOriginalClass + o.idSelector);
+      if (el) scrollContent(delta, true, null, el);
     }
 
-    if (!releaseScroll) {
-      e.preventDefault();
-    }
+    if (!releaseScroll) e.preventDefault();
     e.stopPropagation();
   }
 
@@ -343,27 +308,26 @@ var slimscroll = function (options, elementsArray) {
     isDragg = true;
     mousedownT = parseInt(currentBar.style.top || '0', 10);
     mousedownPageY = e.pageY;
-    if (currentBar) {
-      (currentBar.ownerDocument || baseDoc).addEventListener('mousemove', mousemoveEventHandler);
-    }
+    var doc = currentBar.ownerDocument || baseDoc;
+    if (doc) doc.addEventListener('mousemove', mousemoveEventHandler);
     e.preventDefault();
     return false;
   }
 
   function mousemoveEventHandler(e) {
-    var doc = currentBar ? currentBar.ownerDocument : baseDoc;
     var currTop = mousedownT + e.pageY - mousedownPageY;
-    if (currentBar) {
+    if (currentBar && me) {
       currentBar.style.top = currTop + 'px';
       scrollContent(0, domhelper.getPosition(currentBar).top, false, me, currentBar, true);
     }
   }
 
-  function mouseupEventHandler() {
+  function mouseupEventHandler(e) {
     isDragg = false;
     if (currentBar) {
       hideBar(currentBar);
-      (currentBar.ownerDocument || baseDoc).removeEventListener('mousemove', mousemoveEventHandler);
+      var doc = currentBar.ownerDocument || baseDoc;
+      if (doc) doc.removeEventListener('mousemove', mousemoveEventHandler);
     }
   }
 
@@ -375,10 +339,15 @@ var slimscroll = function (options, elementsArray) {
   function railMouseLeaveEventHandler() { hideBar(); }
 
   function scrollContainerMouseOverEventHandler() {
-    isOverPanel = true; showBar(bar); hideBar(bar);
+    isOverPanel = true;
+    showBar(bar);
+    hideBar(bar);
   }
   function scrollContainerMouseLeaveEventHandler() {
-    isOverPanel = false; hideBar(bar);
+    // 🛠 버그 수정: mouseleave면 false여야 함
+    isOverPanel = false;
+    showBar(bar);
+    hideBar(bar);
   }
 
   function scrollContainerTouchStartEventHandler(e) {
@@ -389,7 +358,7 @@ var slimscroll = function (options, elementsArray) {
 
   function scrollContainerTouchMoveEventHandler(e) {
     if (!releaseScroll) e.preventDefault();
-    if (e.touches && e.touches.length) {
+    if (e.touches && e.touches.length && me) {
       var diff = (currentTouchDif - e.touches[0].pageY) / o.touchScrollStep;
       scrollContent(diff, true, null, me, currentBar, true);
       currentTouchDif = e.touches[0].pageY;
