@@ -1,174 +1,133 @@
-registerOn(threadId){
-  const _this = this;
-  const store = Store.getStore();
-
-  // 1) (tId, msg)로 맞추고, 즉시 호출
-  const off = _this.apihandler.on(threadId, (tId, msg) => {
-    _this.callbackAIThreadMessage(tId, msg);
-  });
-
-  // (선택) 아직 실제 register가 안 되어 있을 가능성 방지
-  // 이미 register 되어 있으면 내부에서 무시하도록 구현해둔 상태라면 안전
-  _this.apihandler.openAIThread(threadId);
-
-  _this.apihandler.unreadAIThreadMessageCount((msg) => {
-    store.dispatch(actions.unreadAIThreadMessageCount(msg));
-  });
-
-  store.dispatch(actions.initUnread(threadId));
-  return off; // 반드시 (type) 인자 받는 함수여야 함
-}
-
-
 openAIThread(threadId) {
   const _this = this;
 
   let entry = _this.threadRegisterMap.get(threadId);
-  if(entry && entry.reg) return;
+  if (entry && entry.reg) return;
 
   const header = { client: 0, UUID: global.Common.getCookie('sessionkey') };
-  const addr = 'hynix.client.' + threadId;
+  const addr   = `hynix.client.${threadId}`;
 
   const handler = (msg) => {
     const e = _this.threadRegisterMap.get(threadId);
-    if(!e) return;
-    e.subscribers.forEach(fn => {
-      try {
-        fn(threadId, msg); // (threadId, msg)로 호출 — 리스너도 동일 시그니처
-      } catch(err) {
-        console.error('[Error] openAIThread handler:', err);
-      }
-    });
+    if (!e) return;
+
+    const payload = msg;
+    // 타입별 리스너에 각각 1번씩만 호출
+    const { panel, popup } = e.listeners || {};
+    try {
+      panel && panel(threadId, payload);
+    } catch (err) { console.error('[panel listener error]', err); }
+    try {
+      popup && popup(threadId, payload);
+    } catch (err) { console.error('[popup listener error]', err); }
   };
 
   _this.sock.register(addr, header, handler);
 
-  if (!entry) entry = { addr, handler, subscribers: new Set(), refs: 0, reg: true };
-  else Object.assign(entry, { addr, handler, reg: true });
-
+  if (!entry) {
+    entry = { addr, handler, listeners: { panel: null, popup: null }, refs: 0, reg: true };
+  } else {
+    Object.assign(entry, { addr, handler, reg: true });
+    // listeners 초기화 보장
+    if (!entry.listeners) entry.listeners = { panel: null, popup: null };
+  }
   _this.threadRegisterMap.set(threadId, entry);
 }
 
-on(threadId, listener){
+
+// type: 'panel' | 'popup'
+on(threadId, type, listener) {
   const _this = this;
 
   let entry = _this.threadRegisterMap.get(threadId);
-  if(!entry) {
-    entry = { addr: `hynix.client.${threadId}`, subscribers: new Set(), refs: 0, reg: false };
+  if (!entry) {
+    entry = { addr: `hynix.client.${threadId}`, listeners: { panel: null, popup: null }, refs: 0, reg: false };
     _this.threadRegisterMap.set(threadId, entry);
+  } else if (!entry.listeners) {
+    entry.listeners = { panel: null, popup: null };
   }
-  entry.subscribers.add(listener);
+
+  // 같은 type은 무조건 교체(중복 제거)
+  if (entry.listeners[type]) {
+    // 기존 리스너가 있었으면 ref를 줄여준다(선택)
+    entry.refs = Math.max(0, entry.refs - 1);
+  }
+  entry.listeners[type] = listener;
   entry.refs += 1;
 
-  // (type) 인자를 받아서 off로 전달
-  return (type) => _this.off(threadId, type, listener);
+  // off 반환 — type을 반드시 받아서 정확히 지우게
+  return () => _this.off(threadId, type);
 }
 
-off(threadId, type, listener){
+off(threadId, type) {
   const _this = this;
   _this.store = Store.getStore();
 
   const entry = _this.threadRegisterMap.get(threadId);
-  if(!entry) return;
+  if (!entry || !entry.listeners) return;
 
-  if(listener) entry.subscribers.delete(listener);
-  entry.refs -= 1;
+  if (entry.listeners[type]) {
+    entry.listeners[type] = null;
+    entry.refs = Math.max(0, entry.refs - 1);
+  }
 
-  if(entry.refs <= 0){
-    if(entry.reg){
-      try{
-        if(type === 'panel'){
-          if(!_this.store.getState().aiThread.currentPopupThread.find(popupId=>popupId===threadId)){
-            _this.closeAIThread(threadId);
-            _this.threadRegisterMap.delete(threadId);
-          }
-        } else if(type === 'popup'){
-          if(_this.store.getState().aiThread.currentChannel !== threadId){
-            _this.closeAIThread(threadId);
-            _this.threadRegisterMap.delete(threadId);
-          }
-        } else {
-          // type이 없으면 안전하게 바로 닫거나, 정책에 맞게 처리
-          _this.closeAIThread(threadId);
-          _this.threadRegisterMap.delete(threadId);
-        }
-      } catch(error){
-        console.error('[Error] closeAIThread - unregister:', error)
+  // 남은 사용 여부 판단
+  const stillUsed = !!(entry.listeners.panel || entry.listeners.popup);
+
+  if (!stillUsed) {
+    if (entry.reg) {
+      try {
+        _this.closeAIThread(threadId);
+      } catch (error) {
+        console.error('[Error] closeAIThread - unregister:', error);
       }
     }
+    _this.threadRegisterMap.delete(threadId);
   }
+}
+
+
+registerOn(threadId, type) {
+  const _this  = this;
+  const store  = Store.getStore();
+
+  // 실제 레지스터 보장(이미 있으면 내부에서 무시)
+  _this.apihandler.openAIThread(threadId);
+
+  // (tId, msg) 형태로 맞추고, type을 명시하여 단일화
+  const off = _this.apihandler.on(threadId, type, (tId, msg) => {
+    _this.callbackAIThreadMessage(tId, msg);
+  });
+
+  _this.apihandler.unreadAIThreadMessageCount((msg) => {
+    store.dispatch(actions.unreadAIThreadMessageCount(msg));
+  });
+  store.dispatch(actions.initUnread(threadId));
+
+  return off; // 호출 시 인자 없이 off() — 위 구현에 맞춤
 }
 
 // 패널
 componentDidMount() {
-  this.off = Socket.getApi().registerOn(this.props.currentId);
+  this.off = Socket.getApi().registerOn(this.props.currentId, 'panel');
 }
 componentWillUnmount() {
-  this.off && this.off('panel'); // ← type 넘겨주기
+  this.off && this.off();
 }
 
 // 팝업
 componentDidMount() {
-  this.off = Socket.getApi().registerOn(this.props.currentId);
+  this.off = Socket.getApi().registerOn(this.props.currentId, 'popup');
   window.addEventListener('unload', this.handleUnload);
 }
-componentWillUnmount() {
-  this.cleanup();
-}
+componentWillUnmount() { this.cleanup(); }
 handleUnload = () => this.cleanup();
 cleanup() {
-  this.off && this.off('popup');    // ← type 넘겨주기
+  this.off && this.off();
   window.removeEventListener('unload', this.handleUnload);
 }
 
-registerOn(threadId){
-  const store = Store.getStore();
 
-  // ❶ 소켓 핸들러 보장
-  this.apihandler.openAIThread(threadId);
 
-  // ❷ (tId, msg)로 맞추고 즉시 호출
-  const off = this.apihandler.on(threadId, (tId, msg) => {
-    this.callbackAIThreadMessage(tId, msg);
-  });
-
-  // ... 기타 로직
-  return off; // (type) 받을 수 있게 on()에서 반환함수 바꿔둬야 함
-}
-
-on(threadId, listener){
-  let entry = this.threadRegisterMap.get(threadId);
-  if(!entry){
-    entry = { addr: `hynix.client.${threadId}`, subscribers:new Set(), refs:0, reg:false };
-    this.threadRegisterMap.set(threadId, entry);
-  }
-  entry.subscribers.add(listener);
-  entry.refs += 1;
-  return (type) => this.off(threadId, type, listener); // ❸ type 전달
-}
-
-openAIThread(threadId){
-  let entry = this.threadRegisterMap.get(threadId);
-  if(entry && entry.reg) return;
-
-  const addr = `hynix.client.${threadId}`;
-  const handler = (msg) => {
-    const e = this.threadRegisterMap.get(threadId);
-    if(!e) return;
-    e.subscribers.forEach(fn => {
-      try { fn(threadId, msg); } catch(e){ console.error(e); }
-    });
-  };
-
-  this.sock.register(addr, { client:0, UUID: global.Common.getCookie('sessionkey') }, handler);
-
-  if(!entry) entry = { addr, handler, subscribers:new Set(), refs:0, reg:true };
-  else Object.assign(entry, { addr, handler, reg:true });
-  this.threadRegisterMap.set(threadId, entry);
-}
-
-callbackAIThreadMessage(threadid, msg){
-  this.handleMessage(threadid, msg);
-}
 
 
