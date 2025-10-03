@@ -8,6 +8,8 @@ from langchain import hub
 import os
 from dotenv import load_dotenv
 
+# streamlit run main.py 로 웹 띄우기
+
 # API KEY 정보로드
 load_dotenv()
 
