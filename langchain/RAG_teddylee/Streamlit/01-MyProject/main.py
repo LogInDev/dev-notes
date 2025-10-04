@@ -4,7 +4,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import load_prompt
-import glob
+from langchain import hub
 import os
 from dotenv import load_dotenv
 
@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 # API KEY 정보로드
 load_dotenv()
 
-st.title("🦜💬")
+st.title("🤖")
 
 # 처음 1번만 실행하기 위한 코드
 if "messages" not in st.session_state:
@@ -25,9 +25,10 @@ with st.sidebar:
     # 초기화 버튼
     clear_btn = st.button("대화 초기화")
 
-    prompt_files = glob.glob("prompts/*.yaml")
-    selected_prompt = st.selectbox( "프롬프트를 선택해 주세요",prompt_files, index=0 )
-    task_input = st.text_input("TASK 입력", "")
+    selected_prompt = st.selectbox(
+        "프롬프트를 선택해 주세요",
+        ("기본모드", "SNS 게시글", "요약"), index=0
+    )
 
 # 이전 메시지를 출력
 def print_messages():
@@ -39,17 +40,26 @@ def add_message(role, message):
     st.session_state["messages"].append(ChatMessage(role=role, content=message))
 
 # 체인 생성
-def create_chain(prompt_filepath, task=""):
-    # prompt 적용
-    prompt = load_prompt(prompt_filepath, encoding="utf-8")
-    if task:
-        prompt = prompt.partial(task=task)
+def create_chain(prompt_type):
+    # prompt | llm | output_parser
+    # 프롬프트(기본모드)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", "당신은 친절한 AI 어시스턴트입니다. 다음의 질문에 간결하게 답변해 주세요."),
+            ("user", "#Question:\n{question}")
+        ]
+    )
+    if prompt_type == "SNS 게시글":
+        prompt = load_prompt("prompts/sns.yaml", encoding="utf-8")
+    elif prompt_type == "요약":
+        # 요약 프롬프트
+        prompt = hub.pull("teddynote/chain-of-density-korean")
 
     # GPT
     llm = ChatOpenAI(
         api_key=os.getenv("API_KEY"),
         base_url="https://openrouter.ai/api/v1",
-        model="x-ai/grok-4-fast",
+        model="x-ai/grok-4-fast:free",
         temperature=0,
     )
 
@@ -74,7 +84,7 @@ if user_input:
     # 사용자의 입력
     st.chat_message("user").write(user_input)
     # chain을 생성
-    chain = create_chain(selected_prompt, task=task_input)
+    chain = create_chain(selected_prompt)
 
     # 스트리밍 호출
     response = chain.stream({"question":user_input})
@@ -86,11 +96,6 @@ if user_input:
         for token in response:
             ai_answer += token
             container.markdown(ai_answer)
-
-    # ai_answer = chain.invoke({"question": user_input})
-    #
-    # # AI의 답변
-    # st.chat_message("assistant").write(ai_answer)
 
     # 대화기록을 저장한다.
     add_message("user", user_input)
