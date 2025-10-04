@@ -4,7 +4,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import load_prompt
-from langchain import hub
+import glob
 import os
 from dotenv import load_dotenv
 
@@ -25,10 +25,9 @@ with st.sidebar:
     # 초기화 버튼
     clear_btn = st.button("대화 초기화")
 
-    selected_prompt = st.selectbox(
-        "프롬프트를 선택해 주세요",
-        ("기본모드", "SNS 게시글", "요약"), index=0
-    )
+    prompt_files = glob.glob("prompts/*.yaml")
+    selected_prompt = st.selectbox( "프롬프트를 선택해 주세요",prompt_files, index=0 )
+    task_input = st.text_input("TASK 입력", "")
 
 # 이전 메시지를 출력
 def print_messages():
@@ -40,26 +39,17 @@ def add_message(role, message):
     st.session_state["messages"].append(ChatMessage(role=role, content=message))
 
 # 체인 생성
-def create_chain(prompt_type):
-    # prompt | llm | output_parser
-    # 프롬프트(기본모드)
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", "당신은 친절한 AI 어시스턴트입니다. 다음의 질문에 간결하게 답변해 주세요."),
-            ("user", "#Question:\n{question}")
-        ]
-    )
-    if prompt_type == "SNS 게시글":
-        prompt = load_prompt("prompts/sns.yaml", encoding="utf-8")
-    elif prompt_type == "요약":
-        # 요약 프롬프트
-        prompt = hub.pull("teddynote/chain-of-density-korean")
+def create_chain(prompt_filepath, task=""):
+    # prompt 적용
+    prompt = load_prompt(prompt_filepath, encoding="utf-8")
+    if task:
+        prompt = prompt.partial(task=task)
 
     # GPT
     llm = ChatOpenAI(
         api_key=os.getenv("API_KEY"),
         base_url="https://openrouter.ai/api/v1",
-        model="x-ai/grok-4-fast:free",
+        model="x-ai/grok-4-fast",
         temperature=0,
     )
 
@@ -84,7 +74,7 @@ if user_input:
     # 사용자의 입력
     st.chat_message("user").write(user_input)
     # chain을 생성
-    chain = create_chain(selected_prompt)
+    chain = create_chain(selected_prompt, task=task_input)
 
     # 스트리밍 호출
     response = chain.stream({"question":user_input})
