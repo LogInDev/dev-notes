@@ -8,12 +8,21 @@ import glob
 import os
 from dotenv import load_dotenv
 
-# streamlit run main.py 로 웹 띄우기
-
 # API KEY 정보로드
 load_dotenv()
 
-st.title("🦜💬")
+# 캐시 디렉토리 생성
+if not os.path.exists('.cache'):
+    os.mkdir(".cache")
+
+# 파일 업로드 전용 폴더
+if not os.path.exists('.cache/files'):
+    os.mkdir(".cache/files")
+
+if not os.path.exists('.cache/embeddings'):
+    os.mkdir(".cache/embeddings")
+
+st.title("PDF 기반 QA💬")
 
 # 처음 1번만 실행하기 위한 코드
 if "messages" not in st.session_state:
@@ -25,9 +34,10 @@ with st.sidebar:
     # 초기화 버튼
     clear_btn = st.button("대화 초기화")
 
-    prompt_files = glob.glob("prompts/*.yaml")
-    selected_prompt = st.selectbox( "프롬프트를 선택해 주세요",prompt_files, index=0 )
-    task_input = st.text_input("TASK 입력", "")
+    # 파일 업로드
+    uploaded_file = st.file_uploader("파일 업로드", type=["pdf"])
+
+    selected_prompt = "prompts/pdf-rag.yaml"
 
 # 이전 메시지를 출력
 def print_messages():
@@ -38,12 +48,23 @@ def print_messages():
 def add_message(role, message):
     st.session_state["messages"].append(ChatMessage(role=role, content=message))
 
+# 파일을 캐시 저장(시간이 오래 걸리는 작업을 처리할 예정)
+@st.cache_resource(show_spinner="업로드한 파일을 처리 중입니다...")
+def embed_file(file):
+    # 업로드한 파일을 캐시 디렉토리에 저장합니다.
+    file_content = file.read()
+    file_path = f"./.cache/files/{file.name}"
+    with open(file_path, "wb") as f:
+        f.write(file_content)
+
+# 파일이 업로드 되었을 떄
+if uploaded_file:
+    embed_file(uploaded_file)
+
 # 체인 생성
-def create_chain(prompt_filepath, task=""):
+def create_chain(prompt_filepath):
     # prompt 적용
     prompt = load_prompt(prompt_filepath, encoding="utf-8")
-    if task:
-        prompt = prompt.partial(task=task)
 
     # GPT
     llm = ChatOpenAI(
@@ -74,7 +95,7 @@ if user_input:
     # 사용자의 입력
     st.chat_message("user").write(user_input)
     # chain을 생성
-    chain = create_chain(selected_prompt, task=task_input)
+    chain = create_chain(selected_prompt)
 
     # 스트리밍 호출
     response = chain.stream({"question":user_input})
