@@ -1,22 +1,21 @@
 import streamlit as st
 from langchain_core.messages.chat import ChatMessage
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import load_prompt
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
-from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-import glob
 import os
 from dotenv import load_dotenv
+from langchain_teddynote import logging
 
 # API KEY 정보로드
 load_dotenv()
+
+# 프로젝트 이름을 입력합니다.
+logging.langsmith("[Project] PDF RAG")
 
 # 캐시 디렉토리 생성
 if not os.path.exists('.cache'):
@@ -48,7 +47,8 @@ with st.sidebar:
     # 파일 업로드
     uploaded_file = st.file_uploader("파일 업로드", type=["pdf"])
 
-    selected_prompt = "prompts/pdf-rag.yaml"
+    # 모델 선택 메뉴
+    selected_model = st.selectbox("LLM 선택", ["deepseek/deepseek-chat-v3.1:free", "tngtech/deepseek-r1t2-chimera:free", "z-ai/glm-4.5-air:free"], index=0)
 
 # 이전 메시지를 출력
 def print_messages():
@@ -88,33 +88,17 @@ def embed_file(file):
     return vectorstore.as_retriever()
 
 # 체인 생성
-def create_chain(retriever):
-    # prompt 적용
-    # prompt = load_prompt(prompt_filepath, encoding="utf-8")
-
+def create_chain(retriever, model_name = "x-ai/grok-4-fast"):
     # 단계 6: 프롬프트 생성(Create Prompt)
-    # 프롬프트를 생성합니다.
-    prompt = PromptTemplate.from_template(
-        """You are an assistant for question-answering tasks. 
-    Use the following pieces of retrieved context to answer the question. 
-    If you don't know the answer, just say that you don't know. 
-    Answer in Korean.
-
-    #Context: 
-    {context}
-
-    #Question:
-    {question}
-
-    #Answer:"""
-    )
+    # 프롬프트를 생성합니다. (파일 경로는 main.py가 기준)
+    prompt = load_prompt("prompts/pdf-rag.yaml", encoding="utf-8")
 
     # 단계 7: 언어모델(LLM) 생성
     # 모델(LLM) 을 생성합니다.
     llm = ChatOpenAI(
         api_key=os.getenv("API_KEY"),
         base_url="https://openrouter.ai/api/v1",
-        model="x-ai/grok-4-fast",
+        model=model_name,
         temperature=0,
     )
 
@@ -131,7 +115,7 @@ def create_chain(retriever):
 if uploaded_file:
     # 파일 업로드 후 retriever 생성(작업시간이 오래 걸릴 예정...)
     retriever = embed_file(uploaded_file)
-    chain = create_chain(retriever)
+    chain = create_chain(retriever, model_name=selected_model)
     st.session_state["chain"] = chain
 
 # 초기화 버튼이 눌리면...
