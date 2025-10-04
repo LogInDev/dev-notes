@@ -48,7 +48,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader("파일 업로드", type=["pdf"])
 
     # 모델 선택 메뉴
-    selected_model = st.selectbox("LLM 선택", ["deepseek/deepseek-chat-v3.1:free", "tngtech/deepseek-r1t2-chimera:free", "z-ai/glm-4.5-air:free"], index=0)
+    selected_model = st.selectbox("LLM 선택", ["x-ai/grok-4-fast", "deepseek/deepseek-chat-v3.1:free", "tngtech/deepseek-r1t2-chimera:free", "z-ai/glm-4.5-air:free"], index=0)
 
 # 이전 메시지를 출력
 def print_messages():
