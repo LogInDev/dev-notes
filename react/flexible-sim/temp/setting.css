@@ -1,10 +1,10 @@
 .aiSetting{
   display:flex; flex-direction:column; gap:35px;
-  width: min(720px, 92%); margin:0 auto; padding-top:20px; text-align:left;
+  width:min(720px,92%); margin:0 auto; padding-top:20px; text-align:left;
 }
-.aiSetting .searchHeader{ display:flex; flex-direction:column; gap:12px; }
-.aiSetting .searchHeader .searchTitle{ font-weight:700; font-size:16px; }
-.aiSetting .searchHeader .searchSubTitle{ color:#666; line-height:1.5; }
+.searchHeader{ display:flex; flex-direction:column; gap:12px; }
+.searchHeader .searchTitle{ font-weight:700; font-size:16px; }
+.searchHeader .searchSubTitle{ color:#666; line-height:1.5; }
 
 .termContent{ display:flex; flex-direction:column; gap:16px; }
 .searchTerm{
@@ -13,29 +13,28 @@
   background:#fff;
 }
 .searchTermContent{ display:flex; flex-direction:column; gap:14px; align-items:flex-start; width:100%; }
-
 .searchTermTitle{ font-weight:600; }
 
 .searchTermBarWrap{ display:flex; flex-direction:column; gap:10px; width:100%; }
 .searchTermBar{
-  position:relative; width:100%; height:10px; border-radius:8px; background:#f1f1f1; cursor:pointer; overflow:hidden;
+  position:relative; width:100%; height:10px; border-radius:8px;
+  background:#f1f1f1; cursor:pointer; overflow:hidden; user-select:none;
 }
 .searchTermBarFill{
   position:absolute; left:0; top:0; height:100%;
-  /* 보라 → 파랑 그라데이션 채우기 */
-  background: linear-gradient(90deg, #7b30f2 0%, #2f7bf4 100%);
-  border-radius:8px;
-  pointer-events:none;
+  background:linear-gradient(90deg,#7b30f2 0%, #2f7bf4 100%);
+  border-radius:8px; pointer-events:none;
 }
+
 .searchTermThumb{
   position:absolute; top:50%; width:22px; height:22px; margin-top:-11px;
   background:#fff; border:2px solid #d5d5d5; border-radius:50%;
   box-shadow:0 2px 6px rgba(0,0,0,.15);
-  transition:left .15s ease;
-  pointer-events:none;
+  transition:left .08s ease; /* 드래그 중 즉각 반응 */
+  cursor:grab;
 }
+.searchTermThumb.dragging{ cursor:grabbing; }
 
-/* 3개의 고정 스톱(클릭 가능) */
 .stopDot{
   position:absolute; top:50%; transform:translate(-50%, -50%);
   width:10px; height:10px; border-radius:50%;
@@ -43,19 +42,16 @@
 }
 .stopDot.active{ background:#2f7bf4; }
 
-/* 하단 숫자 라벨 */
 .searchTermList{ display:flex; justify-content:space-between; width:100%; }
 .stopLabel{ width:32px; text-align:center; cursor:pointer; user-select:none; color:#666; }
 .stopLabel.selected{ color:#2f7bf4; font-weight:700; }
 
-/* 우측 값 배지 */
 .searchTermValue{
   background:#ebebeb; color:#222; border-radius:14px;
   padding:6px 10px; height:28px; min-width:48px; text-align:center; font-weight:600;
 }
 
-/* 작은 화면 대응 */
-@media (max-width: 560px){
+@media (max-width:560px){
   .searchTerm{ flex-direction:column; align-items:stretch; }
   .searchTermValue{ align-self:flex-end; }
 }
