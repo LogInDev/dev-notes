@@ -1,32 +1,34 @@
 import React from 'react';
-import PopupBase from './PopupBase.js';
+import PopupBase from './PopupBase';
 import { connect } from 'react-redux';
-import { setAIViewBackground } from '../../actions/index';
+import { setAIViewBackground } from '../../actions';
 
-/**
- * 라디오형 3-Stop 슬라이더 (0 / mid / max)
- * - props:
- *   title        : 타이틀 문자열
- *   stops        : [min(0), mid, max] 숫자 배열 (예: [0, 60, 180])
- *   unit         : 표시 단위 (예: '일')
- *   value        : 선택 값 (컨트롤드로 쓰고 싶으면 넘겨주고 onChange에서 관리)
- *   defaultIndex : 초기 인덱스 (0|1|2). value가 없으면 이 값 사용
- *   onChange     : (nextValue:number, nextIndex:0|1|2) => void
- */
+// 3-Stop(0/중간/끝) 슬라이더
 class DiscreteSlider extends React.Component {
   constructor(props) {
     super(props);
     const idx = this.getIndexFromValue(props.value, props.stops, props.defaultIndex || 0);
-    this.state = { index: idx };
+    this.state = {
+      index: idx,          // 0|1|2
+      dragging: false,     // 드래그 중 여부
+      dragPercent: idx * 50 // 드래그 중 임시 퍼센트(0~100)
+    };
     this.trackRef = React.createRef();
   }
 
   componentDidUpdate(prevProps) {
-    // 외부에서 value가 컨트롤되는 경우 동기화
+    // 외부 컨트롤드 값이 바뀐 경우 동기화
     if (this.props.value !== prevProps.value && this.props.value != null) {
       const idx = this.getIndexFromValue(this.props.value, this.props.stops, this.state.index);
-      if (idx !== this.state.index) this.setState({ index: idx });
+      if (idx !== this.state.index) {
+        this.setState({ index: idx, dragPercent: idx * 50 });
+      }
     }
+  }
+
+  componentWillUnmount() {
+    // 혹시 남아있을 수 있는 전역 리스너 정리
+    this.detachDragListeners();
   }
 
   getIndexFromValue(val, stops, fallback) {
@@ -39,34 +41,84 @@ class DiscreteSlider extends React.Component {
     return this.props.stops[index];
   }
 
-  // 트랙 클릭 → 비율로 근접 인덱스 계산(0,1,2)
-  onTrackClick = (e) => {
-    if (!this.trackRef.current) return;
+  clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+  // clientX → 트랙 기준 퍼센트(0~100)
+  posToPercent = (clientX) => {
+    if (!this.trackRef.current) return 0;
     const rect = this.trackRef.current.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    // 0~0.33 => 0, 0.33~0.66 => 1, 0.66~1 => 2 (가운데에 민감도 약간 더 줌)
+    const ratio = this.clamp((clientX - rect.left) / rect.width, 0, 1);
+    return ratio * 100;
+  };
+
+  // 클릭 시 근접 스냅
+  onTrackClick = (e) => {
+    // 드래그 시작의 click 이벤트가 곂쳐서 이중 호출되는 이슈 방지
+    if (this.state.dragging) return;
+    const rect = this.trackRef.current.getBoundingClientRect();
+    const ratio = this.clamp((e.clientX - rect.left) / rect.width, 0, 1);
     const nextIndex = ratio < 1/3 ? 0 : (ratio < 2/3 ? 1 : 2);
     this.moveToIndex(nextIndex);
   };
 
-  onLabelClick = (i) => {
-    this.moveToIndex(i);
-  };
+  onLabelClick = (i) => this.moveToIndex(i);
 
   moveToIndex(nextIndex) {
     if (nextIndex === this.state.index) return;
-    this.setState({ index: nextIndex }, () => {
+    this.setState({ index: nextIndex, dragPercent: nextIndex * 50 }, () => {
       if (this.props.onChange) {
         this.props.onChange(this.getValueByIndex(nextIndex), nextIndex);
       }
     });
   }
 
+  // ----- 드래그 -----
+  attachDragListeners() {
+    window.addEventListener('mousemove', this.onDragMoveMouse);
+    window.addEventListener('mouseup', this.onDragEndMouse);
+    window.addEventListener('touchmove', this.onDragMoveTouch, { passive: false });
+    window.addEventListener('touchend', this.onDragEndTouch);
+  }
+  detachDragListeners() {
+    window.removeEventListener('mousemove', this.onDragMoveMouse);
+    window.removeEventListener('mouseup', this.onDragEndMouse);
+    window.removeEventListener('touchmove', this.onDragMoveTouch);
+    window.removeEventListener('touchend', this.onDragEndTouch);
+  }
+
+  onDragStart = (clientX) => {
+    const p = this.posToPercent(clientX);
+    this.setState({ dragging: true, dragPercent: p });
+    this.attachDragListeners();
+  };
+  onDragMove = (clientX) => {
+    if (!this.state.dragging) return;
+    const p = this.posToPercent(clientX);
+    this.setState({ dragPercent: p });
+  };
+  onDragEnd = () => {
+    if (!this.state.dragging) return;
+    const { dragPercent } = this.state;
+    const nextIndex = dragPercent < 33.333 ? 0 : (dragPercent < 66.666 ? 1 : 2);
+    this.detachDragListeners();
+    this.setState({ dragging: false }, () => this.moveToIndex(nextIndex));
+  };
+
+  // 마우스/터치 래퍼
+  onDragStartMouse = (e) => { e.preventDefault(); this.onDragStart(e.clientX); };
+  onDragMoveMouse  = (e) => { e.preventDefault(); this.onDragMove(e.clientX); };
+  onDragEndMouse   = (e) => { e.preventDefault(); this.onDragEnd(); };
+
+  onDragStartTouch = (e) => { if (!e.touches[0]) return; this.onDragStart(e.touches[0].clientX); };
+  onDragMoveTouch  = (e) => { if (!e.touches[0]) return; e.preventDefault(); this.onDragMove(e.touches[0].clientX); };
+  onDragEndTouch   = () => { this.onDragEnd(); };
+  // ------------------
+
   render() {
     const { title, stops, unit } = this.props;
-    const { index } = this.state;
+    const { index, dragging, dragPercent } = this.state;
 
-    const percent = index * 50; // 0, 50, 100
+    const percent = dragging ? dragPercent : index * 50;    // 0, 50, 100 or 드래그 중 임시 값
     const currentValue = stops[index];
 
     return (
@@ -75,14 +127,16 @@ class DiscreteSlider extends React.Component {
           <div className="searchTermTitle">{title}</div>
 
           <div className="searchTermBarWrap">
-            {/* 클릭 가능한 전체 트랙 */}
             <div
               className="searchTermBar"
               ref={this.trackRef}
               onClick={this.onTrackClick}
+              onMouseDown={this.onDragStartMouse}
+              onTouchStart={this.onDragStartTouch}
             >
               <div className="searchTermBarFill" style={{ width: percent + '%' }} />
-              {/* 고정 스톱 지점 가이드 (클릭영역 포함) */}
+
+              {/* stop dots (클릭 가능) */}
               <button
                 type="button"
                 className={'stopDot ' + (index === 0 ? 'active' : '')}
@@ -104,8 +158,14 @@ class DiscreteSlider extends React.Component {
                 onClick={() => this.onLabelClick(2)}
                 aria-label={`${stops[2]}${unit}`}
               />
-              {/* 핸들(회색 원) */}
-              <div className="searchTermThumb" style={{ left: `calc(${percent}% - 11px)` }} />
+
+              {/* 썸(회색 원) */}
+              <div
+                className={'searchTermThumb' + (dragging ? ' dragging' : '')}
+                style={{ left: `calc(${percent}% - 11px)` }}
+                onMouseDown={this.onDragStartMouse}
+                onTouchStart={this.onDragStartTouch}
+              />
             </div>
 
             {/* 하단 라벨 (클릭 가능) */}
@@ -123,7 +183,7 @@ class DiscreteSlider extends React.Component {
           </div>
         </div>
 
-        {/* 우측 값 표시 배지 */}
+        {/* 우측 값 배지 */}
         <div className="searchTermValue">{currentValue}{unit}</div>
       </div>
     );
@@ -141,26 +201,17 @@ class AIViewColorSetting extends PopupBase {
       aiViewBackground: language['BizWorksAIViewSetBackground'] || 'AI 검색화면 템플릿 설정',
       aiViewSearchTerm: language['BizWorksAIViewSetFont'] || 'AI 검색화면 기간'
     };
-
     this.state = {
-      // 기간 값들(서버에서 불러오면 setState로 갱신)
-      defaultDays: 60, // 0|60|180
-      lastWeekDays: 7, // 0|3|7
-      lastMonthDays: 30 // 0|15|30
+      defaultDays: 60,
+      lastWeekDays: 7,
+      lastMonthDays: 30
     };
-  }
-
-  componentDidMount() {
-    // TODO: 기존 bizrunner 호출부가 있다면 여기서 초기값 세팅
-    // ex) this.bizrunner.getAIDefaultRanges().then(({defaultDays, lastWeekDays, lastMonthDays}) => this.setState({defaultDays, lastWeekDays, lastMonthDays}));
   }
 
   onClickSaveButton = () => {
     const { defaultDays, lastWeekDays, lastMonthDays } = this.state;
-    // TODO: API 저장
-    // this.bizrunner.saveAIRanges({ defaultDays, lastWeekDays, lastMonthDays })
-    //   .then(() => { alert(this.language.savemsg); this.onClickCancel(); });
-
+    // TODO: 실서버 저장 API 호출
+    // this.bizrunner.saveAIRanges({ defaultDays, lastWeekDays, lastMonthDays }).then(() => { ... });
     alert(this.language.savemsg);
     this.onClickCancel();
   };
@@ -171,8 +222,7 @@ class AIViewColorSetting extends PopupBase {
         <div className="searchHeader">
           <div className="searchTitle">AI 검색화면 기간</div>
           <div className="searchSubTitle">
-            Cube Channel은 최근 30일 기간이 default로 적용되어 검색결과가 생성됩니다.
-            단, 특정 기간을 등록하여 검색 기간을 설정할 수 있습니다.
+            Cube Channel은 최근 30일 기간이 default로 적용됩니다. 특정 기간을 등록하여 검색 기간을 설정할 수 있습니다.
           </div>
         </div>
 
@@ -234,4 +284,5 @@ const mapStateToProps = (state) => ({
   messages: state.messages,
   background: state.assistant && state.assistant.backgroundImg,
 });
+
 export default connect(mapStateToProps, { setAIViewBackground })(AIViewColorSetting);
