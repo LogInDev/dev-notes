@@ -69,7 +69,7 @@ class MarkdownViewer extends Component {
 
     _this.raf = requestAnimationFrame(() => {
       _this.slimscroll = new slimscroll({
-        idSelector: '.sourceContent',
+        idSelector: '.sourceBody',
         width: '100%',
         height: '100%' 
         // ...(this.state.isBrowser ? { width: '800px' } : {width: '100%'}),
@@ -120,7 +120,7 @@ class MarkdownViewer extends Component {
   componentWillUnmount() {
     cancelAnimationFrame(this.raf);
     try {
-      new slimscroll({ destroy: true, idSelector: '.sourceContent' }).init();
+      new slimscroll({ destroy: true, idSelector: '.sourceBody' }).init();
     } catch (e) {}
   }
 
@@ -194,15 +194,15 @@ class MarkdownViewer extends Component {
 
     return(
       // <main className="card-body sourceContent" style={this.state.isBrowser ? {} : {width: '100%'}}>
-      <div className="card-body sourceContent" style={{width: '100%', height:'100%'}}>
-        <div className="sourceBody markdown-body" style={{height: '100%'}}>
+      // <div className="card-body sourceContent" style={{width: '100%', display: 'block'}}>
+        <div className="sourceBody markdown-body" style={{height: '100%', display: 'block'}}>
           <ReactMarkdown
             children={markdownText}
             linkTarget="_blank"
             linkRel="noopener noreferrer"
           />
         </div>
-      </div>
+      // </div>
     )
   }
 
@@ -277,7 +277,7 @@ class MarkdownViewer extends Component {
     return (
       <section id="markdown-view" 
         className="markdown-view-section has-markdown" 
-        // style={{height:'100%'}}
+        style={{height:'100%'}}
       >
         <div className="markdown-view-card" style={{width:'100%', height:'100%'}}>
           {header}
