@@ -3,6 +3,7 @@ import * as Socket from 'socket';
 import * as Store from 'GlobalStore';
 import OpenDialogPop from 'components/popup/OpenDialogPop/OpenDialogPop';
 import { ModalContainer, ModalDialog } from 'react-modal-dialog';
+import { connect } from 'react-redux';
 
 class AIThreadItem extends Component {
   constructor(props) {
@@ -40,12 +41,6 @@ class AIThreadItem extends Component {
     }, 200);
   }
 
-  upateFavorite() {
-    let { data } = this.props;
-    let api = Socket.getApi();
-    api.updateFavorite(data.channel_id, data.favorite === 'Y' ? 'N' : 'Y');
-  }
-
   deleteAIThread = () =>{
     const threadId = this.props.threadId
     this.setState({isShowOpenDialogModal: false})
@@ -65,7 +60,7 @@ class AIThreadItem extends Component {
     this.setState({
       //...this.state,
       isShowOpenDialogModal: false,
-      isRepopup: false,
+      // isRepopup: false,
     });
   }
 
@@ -96,11 +91,17 @@ class AIThreadItem extends Component {
     }
   }
 
+  upateFavorite = ()=> {
+    let { data } = this.props;
+    let api = Socket.getApi();
+    api.updateFixThread(data.channel_id, data.favorite === 'Y' ? 'N' : 'Y');
+  }
+
   render() {
     let { image } = global.CONFIG.resource;
 
     let { isHovered } = this.state;
-    let { data, selectedChannel, currentUserName } = this.props;
+    let { data, selectedChannel, currentUserName, openedPopupThreads, threadId } = this.props;
     let hasUnreadMention = data.unreadMention && data.unreadMention > 0;
     let hasUnreadAllMention = data.unreadAllMention && data.unreadAllMention > 0;
     let hasUnreadKeywordMention = data.unreadKeywordMention && data.unreadKeywordMention > 0;
@@ -144,6 +145,8 @@ class AIThreadItem extends Component {
         } else viewname = data.channel_name;
       }
       let channelName = data.aliasChannelName ? data.aliasChannelName : viewname;
+      // let isOpened = openedPopupThreads.find(thread => thread === threadId);
+
       return (
         <li className='dmchannel'
           data-id={this.props.threadId} 
@@ -152,13 +155,20 @@ class AIThreadItem extends Component {
           onMouseLeave={this.handleMouseLeave}
           >
             <div className="con">
+              <button
+                onClick={this.upateFavorite}
+                type="button"
+                className={data.favorite === 'Y' ? 'star on' : 'star'}
+              />
                 <a 
                   onClick={this.openAIThread}
                   className={this.props.selectedChannel ? 'on' : ''} title='channelName' 
                   onMouseDown={this.onMouseDownTerm}
                   onContextMenu={(e) => this.props.openThreadPopup(e, this.props.threadId)}  
                 >
-                  <span>{channelName}</span>
+                  <span 
+                    // style={isOpened ? {color:'#FFB80A'} : {}}
+                  >{channelName}</span>
                 </a>
             </div>
             <div className="aibtn">
@@ -185,5 +195,13 @@ class AIThreadItem extends Component {
   }
 }
 
+
+const mapStateToProps = (state) => {
+  return {
+    // openedPopupThreads: state.aiThread.currentPopupThread
+  };
+};
+
+// export default connect(mapStateToProps)(AIThreadItem);
 export default AIThreadItem;
 
