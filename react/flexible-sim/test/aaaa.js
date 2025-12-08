@@ -1,118 +1,40 @@
-isHttpLink = (url) => {
-  if (!url) return false;
-  return /^https?:\/\//i.test(url);
-};
+  openAIThread(threadid, findid, type, callback) {
+    let _this = this;
+    let store = Store.getStore();
 
-renderLink = (props) => {
-  const { href, children } = props;
+    _this.apihandler.getAIThreadInfoSummary(threadid, (msg) => {
+      _this.onGetThreadInfoSummary(threadid, msg);
+      let threadMove = true;
+      console.log('getAIThreadInfoSummary====findid======', findid)
+      console.log('getAIThreadInfoSummary====msg======', msg.unread_message_id )
+      console.log('getAIThreadInfoSummary====msg======', msg.unread_message_id )
+      if (findid) {
+        _this.selectAIMessageList('FIND', findid, threadMove, threadid);
+      } else if (msg.unread_message_id !== '-1') {
+        _this.selectAIMessageList('FIND', msg.unread_message_id, threadMove, threadid);
+      } else {
+        _this.apihandler.getAIThreadMessages(threadid, _this.onGetAIThreadMessages.bind(_this));
+      }
+      if(typeof callback === 'function') callback();
+      if(type === 'panel'){
+        store.dispatch(actions.setAiThreadTab(true));
+        store.dispatch(actions.clickDetailTabItem('assistant'));
+      }
+      _this.airunner.requestAIStatus(threadid,(msg)=>{
+        if(msg.status === 'W'){
+          store.dispatch(actions.setLoading(true, threadid));
+        }else{
+          store.dispatch(actions.setLoading(false, threadid));
+        }
+      })
+      // writting 초기화 추가
+      // store.dispatch(actions.deleteWriting(msg));
+    });
+    _this.apihandler.openAIThread(threadid, _this.callbackAIThreadMessage.bind(_this));
 
-  // http/https 아니면 a 태그 만들지 말고 그냥 텍스트로
-  if (!this.isHttpLink(href)) {
-    return <span>{children}</span>;
+    _this.apihandler.unreadAIThreadMessageCount((msg) => {
+      store.dispatch(actions.unreadAIThreadMessageCount(msg));
+    });
+
+    store.dispatch(actions.initThreadUnread(threadid));
   }
-
-  // http/https인 경우: 새 탭으로 열기
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      {children}
-    </a>
-  );
-};
-renderLinkReference = (props) => {
-  const { href, children } = props;
-
-  // reference 형식인데 href가 있고, 그게 http/https면 링크로 인정
-  if (this.isHttpLink(href)) {
-    return (
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {children}
-      </a>
-    );
-  }
-
-  // 그 외 (href 없거나, http/https가 아님) → a 태그 만들지 않음
-  return <span>{children}</span>;
-};
-<ReactMarkdown
-  source={markdownText}
-  plugins={[remarkGfm]}
-  renderers={{
-    link: this.renderLink,
-    linkReference: this.renderLinkReference,
-  }}
-/>
-
-import React, { Component } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-
-// ...
-
-class MarkdownViewer extends Component {
-  // ...
-
-  isHttpLink = (url) => {
-    if (!url) return false;
-    return /^https?:\/\//i.test(url);
-  };
-
-  renderLink = (props) => {
-    const { href, children } = props;
-
-    if (!this.isHttpLink(href)) {
-      return <span>{children}</span>;
-    }
-
-    return (
-      <a href={href} target="_blank" rel="noopener noreferrer">
-        {children}
-      </a>
-    );
-  };
-
-  renderLinkReference = (props) => {
-    const { href, children } = props;
-
-    if (this.isHttpLink(href)) {
-      return (
-        <a href={href} target="_blank" rel="noopener noreferrer">
-          {children}
-        </a>
-      );
-    }
-
-    return <span>{children}</span>;
-  };
-
-  renderBody = () => {
-    const { markdownText, isLoading } = this.state;
-
-    if (isLoading) {
-      return <div className="sourceBody">데이터를 불러오는 중...</div>;
-    }
-
-    return (
-      <div className="sourceBody markdown-body" style={/* ... */}>
-        <ReactMarkdown
-          source={markdownText}
-          plugins={[remarkGfm]}
-          renderers={{
-            link: this.renderLink,
-            linkReference: this.renderLinkReference,
-          }}
-        />
-      </div>
-    );
-  };
-
-  // ...
-}
-
