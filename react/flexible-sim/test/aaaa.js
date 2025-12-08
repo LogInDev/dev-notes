@@ -50,3 +50,69 @@ renderLinkReference = (props) => {
   }}
 />
 
+import React, { Component } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+// ...
+
+class MarkdownViewer extends Component {
+  // ...
+
+  isHttpLink = (url) => {
+    if (!url) return false;
+    return /^https?:\/\//i.test(url);
+  };
+
+  renderLink = (props) => {
+    const { href, children } = props;
+
+    if (!this.isHttpLink(href)) {
+      return <span>{children}</span>;
+    }
+
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    );
+  };
+
+  renderLinkReference = (props) => {
+    const { href, children } = props;
+
+    if (this.isHttpLink(href)) {
+      return (
+        <a href={href} target="_blank" rel="noopener noreferrer">
+          {children}
+        </a>
+      );
+    }
+
+    return <span>{children}</span>;
+  };
+
+  renderBody = () => {
+    const { markdownText, isLoading } = this.state;
+
+    if (isLoading) {
+      return <div className="sourceBody">데이터를 불러오는 중...</div>;
+    }
+
+    return (
+      <div className="sourceBody markdown-body" style={/* ... */}>
+        <ReactMarkdown
+          source={markdownText}
+          plugins={[remarkGfm]}
+          renderers={{
+            link: this.renderLink,
+            linkReference: this.renderLinkReference,
+          }}
+        />
+      </div>
+    );
+  };
+
+  // ...
+}
+
