@@ -1,303 +1,35 @@
-콘솔에 아래처럼 찍히는데 왜 화면에서는 html로  표로 표현은 되는데 css가표처럼 안보여서  그래 어떻게 수정해?
-
-<table><thead><tr><th>주간</th><th>기준일</th></tr></thead><tbody><tr><td>이번주</td><td>2025-12-02 ~ 2025-12-08</td></tr><tr><td>지난주</td><td>2025-11-26 ~ 2025-12-08</td></tr><tr><td>지난달</td><td>2025-10-29 ~ 2025-12-03</td></tr></tbody></table>
-
-
-import React, {Component} from 'react';
-import slimscroll from 'util/slimscroll';
-import { detectSource } from 'util/detectEnv';
-import airunner from '../../ajax/airunner.js';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from "remark-gfm";
-
-class MarkdownViewer extends Component {
-  constructor(props) {
-    super(props);
-
-    let language = global.CONFIG.language || {};
-
-    this.language = {
-      moveMsg: language['BizWorksSelectCopyMessageMsg'] || '이동하실 채널을 선택하여 주세요.',
-      channel: language['BizWorksChannel'] || '채널',
-      chatRoom: language['DMChannel'] || '대화방',
-      copyMsg: language['BizWorksSearchCopyMessageMsg'] || '해당 메세지를 복사 할 대화방을 검색하세요.',
-      save: language['ButtonSave'] || '저장',
-      cancel: language['ButtonCancel'] || '취소',
-      close: language['ButtonClose'] || '닫기'
-    };
-
-    let paramtemp = {};
-    if (this.props.location) {
-      if (this.props.location.search) {
-        let params = this.props.location.search.substring(1).split('&');
-        params.map((param, idx) => {
-          let [key, value] = param.split('=');
-          paramtemp[key.toLowerCase()] = value || '';
-          return true;
-        });
-      }
-    }
-
-    if (global.externalParam) {
-      for (let key in global.externalParam) {
-        paramtemp[key.toLowerCase()] = global.externalParam[key];
-      }
-    }
-
-    for (let prop in this.props) {
-      if (prop !== 'location') {
-        paramtemp[prop.toLowerCase()] = this.props[prop];
-      }
-    }
-
-    this.params = paramtemp;
-    this.richMsg = '';
-
-    const auto = detectSource();
-
-    this.state = {
-      markdownText: "로딩 중...",
-      isLoading: true,
-      isBrowser: !auto.isAnyWebView,
-    };
-
-    this.airunner = new airunner();
-    this.onClickCancel = this.onClickCancel.bind(this);
-
-  }
-
-  componentDidMount(){
-    let _this = this;
-
-    const initSlimscroll = () => {
-      if (_this.slimscrollInited) return;
-      _this.slimscrollInited = true;
-
-      _this.raf = requestAnimationFrame(() => {
-        try {
-          _this.slimscroll = new slimscroll({
-            idSelector: '.sourceBody',
-            ...(this.state.isBrowser ? { width: '800px' } : {width: '100%'}),
-            ...(this.state.isBrowser ? { height: '450px' } : {height: '100%'}) 
-          });
-          _this.slimscroll.init();
-        } catch (e) {
-          console.error('slimscroll init error', e);
-        }
-      });
-    };
-
-    let finalMarkdown = "해당 메시지는 마크다운 뷰어를 지원하지 않는 내용이 포함되어 있습니다. 관리자에게 문의하세요.";
-
-    if(this.params.threadid){
-      console.log('MardkdownViewer params.thread_id-------', this.params)
-      const thread_id = this.params.threadid;
-      const message_id = this.params.messageid;
-      this.airunner.selectAIRichmessage(Number(thread_id), message_id).then((res) => {
-        const rich = res.richnotification.content;
-        let contentRaw = _this.transformDataToMarkdown(rich);
-
-        if (contentRaw !== undefined && contentRaw !== null && contentRaw !== '') {
-          finalMarkdown = contentRaw;
-        }
-
-        _this.setState({
-          markdownText: finalMarkdown,
-          isLoading: false
-        },
-        initSlimscroll);
-      })
-      .catch(error => {
-        console.error("마크다운 데이터를 불러오는 중 오류 발생:", error);
-        _this.setState({
-          markdownText: "데이터를 불러오는 중 오류가 발생했습니다.",
-          isLoading: false
-        },
-        initSlimscroll);
-      });
-    }else if(this.props.content){
-      const rich = this.props.content.content;
-      let contentRaw = this.transformDataToMarkdown(rich);
-      if (contentRaw !== undefined && contentRaw !== null && contentRaw !== '') {
-        finalMarkdown = contentRaw;
-      }
-      _this.setState({
-        markdownText: finalMarkdown,
-        isLoading: false
-      },
-      initSlimscroll);
-    } else {
-      this.setState(
-        {
-          markdownText: finalMarkdown,
-          isLoading: false
-        },
-        initSlimscroll
-      );
-    }
-  }
-
-  componentWillUnmount() {
-    cancelAnimationFrame(this.raf);
-    try {
-      new slimscroll({ destroy: true, idSelector: '.sourceBody' }).init();
-    } catch (e) {}
-  }
-
-  renderHeader = () => {
-    let { image } = global.CONFIG.resource;
-
-    return (
-      <header className="card-header">
-        <div className="header-title-group">
-          <img src={`${image}/aiassistant/markdown_title.png`} alt="Document icon" className="header-icon" />
-          <h2 className="card-title">{this.props.headerTitle}</h2>
-        </div>
-        <button className="close-button" onClick={this.onClickCancel}>
-          <img src={`${image}/aiassistant/close_btn.png`} alt="Close icon" />
-        </button>
-      </header>
-    );
-  }
-
-  transformDataToMarkdown = (rich) =>{
-    const allAggregatedChunks = [];
-    const masterDedup = new Set(); 
-    const normalize = (s) => {
-      if (!s) return '';
-      let str = String(s).trim();
-      if (!str) return '';
-      if (str.includes('해당 답변은 AI가 생성한 답변으로, 정확하지 않을 수 있습니다')) return ''; 
-      return str;
-    };
-    const dedent = (s) => {
-      const lines = s.replace(/\r/g, '').split('\n');
-      const indents = lines
-      .filter(l => l.trim().length)
-      .map(l => l.match(/^\s*/)[0].length);
-      const min = indents.length ? Math.min(...indents) : 0;
-      return lines.map(l => l.slice(min)).join('\n').trim();
-    };
-
-    rich.forEach((content) => {
-      let { body } = content;
-      const chunks = [];
-      
-      body.row.forEach((row, _idx) => {
-        (row.column || []).forEach(col => {
-          if (col && col.type === 'label' && col.control && Array.isArray(col.control.text)) {
-            // col.control.text.forEach(t => {
-            const t = col.control.text[0];
-            const n = normalize(t);
-            if (n && !masterDedup.has(n)) {
-              masterDedup.add(n);
-              chunks.push(n);
-            }
-            // });
-          }
-        });
-      });
-
-      allAggregatedChunks.push(...chunks);
-    });
-
-    return dedent(allAggregatedChunks.join('\n\n'))
-      .replace(/\u00A0|\u3000/g, ' ')
-      .replace(/^\s{2,}/gm, ''); 
-  }
-
-  renderBody = (idx) => {
-    const { markdownText, isLoading } = this.state;
-
-    console.log('=======', markdownText)
-    
-    if (isLoading) {
-      return <div className="sourceBody">데이터를 불러오는 중...</div>;
-    }
-
-    return(
-        <div className="sourceBody markdown-body" style={this.state.isBrowser ? {padding: '0 10px'} : {height: '100%', display: 'block', padding: '0 10px'}}>
-          <ReactMarkdown
-            source={markdownText}
-            linkTarget="_blank"
-            linkRel="noopener noreferrer"
-            plugins={[remarkGfm]}
-          />
-        </div>
-    )
-  }
-
-  closeModal=()=> {
-    if (typeof this.props.closeModal === 'function') {
-      this.props.closeModal();
-    }
-  }
-
-  onClickCancel(e) {
-    if (window && window.external && 'CallbackWindow' in window.external) {
-      window.external.CallbackWindow('PopupBrowserClose');
-      
-      (async function()
-      {
-        await CefSharp.BindObjectAsync("cefSharpAPI"); // eslint-disable-line
-        cefSharpAPI.callbackWindow('PopupBrowserClose'); // eslint-disable-line
-      })();
-    } 
-
-    else if (typeof this.props.closeModal === 'function') {
-      (async function()
-      {
-        await CefSharp.BindObjectAsync("cefSharpAPI"); // eslint-disable-line
-        cefSharpAPI.callbackWindow('PopupBrowserClose'); // eslint-disable-line
-      })();
-      this.props.closeModal();
-    } else {
-      if (this.params.voteurl !== undefined) {
-        window.location.reload();
-      } 
-      else{
-        if (CefSharp) { // eslint-disable-line
-          (async function()
-          {
-            await CefSharp.BindObjectAsync("cefSharpAPI"); // eslint-disable-line
-            cefSharpAPI.callbackWindow('PopupBrowserClose'); // eslint-disable-line
-          })();
-        }
-      }
-    }
-  }
-
-  renderFooter = () => {
-    let { image } = global.CONFIG.resource;
-
-    return(
-      <footer className="card-footer" >
-        <div className="disclaimer">
-          <img src={`${image}/aiassistant/markdown_info.png`} alt="Information icon" className="disclaimer-icon" />
-          <span className="disclaimer-text">해당 답변은 AI가 생성한 답변으로, 정확하지 않을 수 있습니다.</span>
-        </div>
-      </footer>
-    )
-  }
-
-  render() {
-    let header = this.props.headerTitle ? this.renderHeader() : '';
-    let body = this.renderBody();
-    let footer = this.renderFooter();
-
-    return (
-      <section id="markdown-view" 
-        className="markdown-view-section has-markdown" 
-        style={{height:'100%'}}
-      >
-        <div className="markdown-view-card" style={{width:'100%', height:'100%'}}>
-          {header}
-          {body}
-          {footer}
-      </div>
-    </section>
-    );
-  }
+/* 마크다운 뷰어 기본 스타일 */
+.markdown-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #222;
 }
 
-export default MarkdownViewer;
+/* 표 전체 스타일 */
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 16px 0;
+  border: 1px solid #d0d7de;      /* 외곽선 */
+}
+
+/* 헤더/셀 공통 스타일 */
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid #d0d7de;      /* 셀 테두리 */
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* 헤더만 배경색 */
+.markdown-body thead tr {
+  background-color: #f6f8fa;
+  font-weight: 600;
+}
+
+/* 짝수 행 줄무늬(선택) */
+.markdown-body tbody tr:nth-child(even) {
+  background-color: #fafbfc;
+}
