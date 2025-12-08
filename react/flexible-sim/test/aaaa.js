@@ -1,134 +1,38 @@
-transformDataToMarkdown = (rich) => {
-  const allAggregatedChunks = [];
-  const masterDedup = new Set();
+너말대로 수정하고 숫자로 잘나오고 아래 -고 들여쓰기 잘되어 있는데 ol로 적용이 안돼. 왜그런거야? 라이브러리 버전문제야?
 
-  const normalize = (s) => {
-    if (!s) return '';
-    let str = String(s).trim();
-    if (!str) return '';
-    if (str.includes('해당 답변은 AI가 생성한 답변으로, 정확하지 않을 수 있습니다')) return '';
-    return str;
-  };
 
-  const dedent = (s) => {
-    const lines = s.replace(/\r/g, '').split('\n');
-    const indents = lines
-      .filter(l => l.trim().length)
-      .map(l => l.match(/^\s*/)[0].length);
-    const min = indents.length ? Math.min(...indents) : 0;
-    return lines.map(l => l.slice(min)).join('\n').trim();
-  };
-
-  // 📌 숫자 리스트 + 하위 불릿 정리용
-  const normalizeNumberedSections = (text) => {
-    const lines = text.split('\n');
-    const result = [];
-
-    let inNumberSection = false;
-
-    for (let i = 0; i < lines.length; i++) {
-      let line = lines[i];
-
-      // 완전 빈 줄이면 섹션 종료
-      if (/^\s*$/.test(line)) {
-        inNumberSection = false;
-        result.push(line);
-        continue;
-      }
-
-      // "1. 내용" / "2. 내용" → 숫자 섹션 시작
-      if (/^\s*\d+\.\s+/.test(line)) {
-        inNumberSection = true;
-        result.push(line);
-        continue;
-      }
-
-      // 숫자 섹션 안에서 나오는 "- 내용" 은 "   - 내용" 으로 들여쓰기해서
-      // 숫자 li 안에 들어가는 ul 로 인식되게 함
-      if (inNumberSection && /^\s*-\s+/.test(line)) {
-        line = '   ' + line.trim(); // 앞에 스페이스 3칸
-        result.push(line);
-        continue;
-      }
-
-      // 그 외는 그대로
-      result.push(line);
-    }
-
-    return result.join('\n');
-  };
-
-  // 📌 "1.내용" → "1. 내용" / "-내용" → "- 내용"으로 교정
-  const fixListSpacing = (text) => {
-    let out = text;
-
-    // "1.내용" → "1. 내용"
-    out = out.replace(/(^|\n)(\d+)\.(\S)/g, '$1$2. $3');
-
-    // "-내용" → "- 내용", "*내용" → "* 내용", "+내용" → "+ 내용"
-    out = out.replace(/(^|\n)([-*+])(\S)/g, '$1$2 $3');
-
-    return out;
-  };
-
-  // 📌 테이블 내부의 구분선처럼 생긴 행이 GFM 구분선으로 오인되는 것 방지
-  // 예: "|--------|----------------------|" 같은 행을 내용으로 살리고 싶을 때
-  const fixTableDividerRows = (text) => {
-    return text.replace(/^\|[-\s]+\|\s*[-\s]+\|$/gm, (line) => {
-      // "|------|------|" 형태를 각 셀을 `코드`로 감싼 내용 행으로 변경
-      const cells = line.split('|').slice(1, -1);
-      const converted = cells
-        .map(c => {
-          const trimmed = c.trim();
-          if (!trimmed) return ' ';
-          return ' `' + trimmed + '` ';
-        })
-        .join('|');
-      return '|' + converted + '|';
-    });
-  };
-
-  // ===========================
-  // 1) rich → 순수 텍스트 추출
-  // ===========================
-  rich.forEach((content) => {
-    let { body } = content;
-    const chunks = [];
-
-    body.row.forEach((row) => {
-      (row.column || []).forEach(col => {
-        if (col && col.type === 'label' && col.control && Array.isArray(col.control.text)) {
-          const t = col.control.text[0];
-          const n = normalize(t);
-          if (n && !masterDedup.has(n)) {
-            masterDedup.add(n);
-            chunks.push(n);
-          }
-        }
-      });
-    });
-
-    allAggregatedChunks.push(...chunks);
-  });
-
-  // ===========================
-  // 2) 기본 정리 (공백 등)
-  // ===========================
-  let output = dedent(allAggregatedChunks.join('\n\n'))
-    .replace(/\u00A0|\u3000/g, ' ')  // 특수 공백 → 일반 공백
-    .replace(/\t/g, '  ')           // 탭 → 공백 2칸
-    .replace(/\s+$/gm, '');         // 각 줄 끝쪽 불필요한 공백 제거
-
-  // ===========================
-  // 3) 리스트 문법 교정
-  // ===========================
-  output = fixListSpacing(output);          // "1.내용" / "-내용" 교정
-  output = normalizeNumberedSections(output); // 숫자 섹션 안의 "-" 를 들여쓰기해서 하위 ul 처리
-
-  // ===========================
-  // 4) 테이블 구분선 문제 방지
-  // ===========================
-  output = fixTableDividerRows(output);
-
-  return output.trim();
-};
+1. 주요 내용(1)
+   - CUBE 개발 관련 파일 압축 및 공유 진행
+   - FE 파일, WPF 파일, 소스 코드 등을 Zip으로 압축하여 공유
+   - 작성자: 김종민, 날짜: 2025년 11월 26일
+2. 주요 내용(2)
+   - CUBE AI 기능 개발 논의
+   - 웹/PC 클라이언트 통합, 소스 렌더링 부분 통합 필요성 논의
+   - JSON 포맷 헤더 변경 예정
+   - 작성자: 노승훈, 날짜: 2025년 11월 26일
+3. 주요 내용(3)
+   - API 연동 및 기술적 이슈 해결
+   - upload 관련 URL 정의 (http://hydisk.skhynix.com/edms/VFfileProperties.do?objectId=oid)
+   - iflow API 적용을 위한 토큰, 타이틀 필요
+   - 작성자: 노승훈, 날짜: 2025년 11월 26일
+4. 주요 내용(4)
+   - UI/UX 개선 및 아이콘 디자인
+   - CUBE AI 아이콘, 핀 고정 아이콘 등 디자인 공유
+   - 하얀색 아이콘은 시인성 문제로 사용하지 않기로 결정
+   - 작성자: 김종민, 날짜: 2025년 11월 27일
+5. 주요 내용(5)
+   - 기능 개발 및 배포 현황
+   - guide line 기능 개발 (guideNum: "1", "2", "3"... / 기본값 "N")
+   - title 수동 변경, 파일 업로드, 링크 자동 복사, 지식블로그 등록 등 기능 개발
+   - 작성자: 안국진, 노승훈, 날짜: 2025년 11월 27일 ~ 12월 2일
+6. 주요 내용(6)
+   - 실시간 메시징 기능 개선
+   - websocket.unreadAiThreadMessageCount, websocket.unreadAiMessageRead 등 API 호출 문제 발생 및 해결 논의
+   - 운영 서버에서 "API call fail" 메시지 발생, 개발 환경과 운영 환경 간 차이점 논의
+   - 작성자: 권경록, 안국진, 날짜: 2025년 12월 5일 ~ 12월 8일
+7. 주요 내용(7)
+   - 서버 통신 포트 관련 논의
+   - 기존 9000번 포트(socket 통신), 9200번 포트(RestApi) 사용
+   - 공통 서버 포트 22223번으로 통일 필요성 논의
+   - 작성자: 권경록, 안국진, 날짜: 2025년 12월 8일
+현재 '[AI 비서] - Cube 개발자' 채널에서는 CUBE AI 기능 개발을 위한 기술적 논의가 활발히 진행되고 있으며, 주로 API 연동, UI/UX 개선, 실시간 메시징 기능 개선 등의 작업이 중심입니다.
