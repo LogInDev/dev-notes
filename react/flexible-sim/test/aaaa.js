@@ -1,40 +1,46 @@
-  openAIThread(threadid, findid, type, callback) {
-    let _this = this;
-    let store = Store.getStore();
+아니 이렇게 변환전 글자를 출력해보면 
+숫자와 띄어쓰기 잘되어있는데 
+react-markdown을 변환만하면 숫자도 li로 되서 숫자와 - 이 표시가 구분 없이 모두 ul-li로 적용돼. 숫자는 숫자 ol로 -는 ul로 적용되게 해줘
 
-    _this.apihandler.getAIThreadInfoSummary(threadid, (msg) => {
-      _this.onGetThreadInfoSummary(threadid, msg);
-      let threadMove = true;
-      console.log('getAIThreadInfoSummary====findid======', findid)
-      console.log('getAIThreadInfoSummary====msg======', msg.unread_message_id )
-      console.log('getAIThreadInfoSummary====msg======', msg.unread_message_id )
-      if (findid) {
-        _this.selectAIMessageList('FIND', findid, threadMove, threadid);
-      } else if (msg.unread_message_id !== '-1') {
-        _this.selectAIMessageList('FIND', msg.unread_message_id, threadMove, threadid);
-      } else {
-        _this.apihandler.getAIThreadMessages(threadid, _this.onGetAIThreadMessages.bind(_this));
-      }
-      if(typeof callback === 'function') callback();
-      if(type === 'panel'){
-        store.dispatch(actions.setAiThreadTab(true));
-        store.dispatch(actions.clickDetailTabItem('assistant'));
-      }
-      _this.airunner.requestAIStatus(threadid,(msg)=>{
-        if(msg.status === 'W'){
-          store.dispatch(actions.setLoading(true, threadid));
-        }else{
-          store.dispatch(actions.setLoading(false, threadid));
-        }
-      })
-      // writting 초기화 추가
-      // store.dispatch(actions.deleteWriting(msg));
-    });
-    _this.apihandler.openAIThread(threadid, _this.callbackAIThreadMessage.bind(_this));
 
-    _this.apihandler.unreadAIThreadMessageCount((msg) => {
-      store.dispatch(actions.unreadAIThreadMessageCount(msg));
-    });
 
-    store.dispatch(actions.initThreadUnread(threadid));
-  }
+1. 주요 내용(1)
+- CUBE 개발 관련 파일 압축 및 공유 진행
+- FE 파일, WPF 파일, 소스 코드 등을 Zip으로 압축하여 공유
+- 작성자: 김종민, 날짜: 2025년 11월 26일
+
+2. 주요 내용(2)
+- CUBE AI 기능 개발 논의
+- 웹/PC 클라이언트 통합, 소스 렌더링 부분 통합 필요성 논의
+- JSON 포맷 헤더 변경 예정
+- 작성자: 노승훈, 날짜: 2025년 11월 26일
+
+3. 주요 내용(3)
+- API 연동 및 기술적 이슈 해결
+- upload 관련 URL 정의 (http://hydisk.skhynix.com/edms/VFfileProperties.do?objectId=oid)
+- iflow API 적용을 위한 토큰, 타이틀 필요
+- 작성자: 노승훈, 날짜: 2025년 11월 26일
+
+4. 주요 내용(4)
+- UI/UX 개선 및 아이콘 디자인
+- CUBE AI 아이콘, 핀 고정 아이콘 등 디자인 공유
+- 하얀색 아이콘은 시인성 문제로 사용하지 않기로 결정
+- 작성자: 김종민, 날짜: 2025년 11월 27일
+
+5. 주요 내용(5)
+- 기능 개발 및 배포 현황
+- guide line 기능 개발 (guideNum: "1", "2", "3"... / 기본값 "N")
+- title 수동 변경, 파일 업로드, 링크 자동 복사, 지식블로그 등록 등 기능 개발
+- 작성자: 안국진, 노승훈, 날짜: 2025년 11월 27일 ~ 12월 2일
+
+6. 주요 내용(6)
+- 실시간 메시징 기능 개선
+- websocket.unreadAiThreadMessageCount, websocket.unreadAiMessageRead 등 API 호출 문제 발생 및 해결 논의
+- 운영 서버에서 "API call fail" 메시지 발생, 개발 환경과 운영 환경 간 차이점 논의
+- 작성자: 권경록, 안국진, 날짜: 2025년 12월 5일 ~ 12월 8일
+
+7. 주요 내용(7)
+- 서버 통신 포트 관련 논의
+- 기존 9000번 포트(socket 통신), 9200번 포트(RestApi) 사용
+- 공통 서버 포트 22223번으로 통일 필요성 논의
+- 작성자: 권경록, 안국진, 날짜: 2025년 12월 8일
