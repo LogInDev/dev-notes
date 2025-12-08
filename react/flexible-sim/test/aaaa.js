@@ -1,38 +1,27 @@
-너말대로 수정하고 숫자로 잘나오고 아래 -고 들여쓰기 잘되어 있는데 ol로 적용이 안돼. 왜그런거야? 라이브러리 버전문제야?
+// 숫자 리스트 / 불릿 리스트 구분해서 그려주는 list 렌더러
+ListRenderer = (props) => {
+  const { ordered, children } = props;
+  const Tag = ordered ? 'ol' : 'ul';
 
+  return (
+    <Tag className={ordered ? 'md-ol' : 'md-ul'}>
+      {children}
+    </Tag>
+  );
+};
 
-1. 주요 내용(1)
-   - CUBE 개발 관련 파일 압축 및 공유 진행
-   - FE 파일, WPF 파일, 소스 코드 등을 Zip으로 압축하여 공유
-   - 작성자: 김종민, 날짜: 2025년 11월 26일
-2. 주요 내용(2)
-   - CUBE AI 기능 개발 논의
-   - 웹/PC 클라이언트 통합, 소스 렌더링 부분 통합 필요성 논의
-   - JSON 포맷 헤더 변경 예정
-   - 작성자: 노승훈, 날짜: 2025년 11월 26일
-3. 주요 내용(3)
-   - API 연동 및 기술적 이슈 해결
-   - upload 관련 URL 정의 (http://hydisk.skhynix.com/edms/VFfileProperties.do?objectId=oid)
-   - iflow API 적용을 위한 토큰, 타이틀 필요
-   - 작성자: 노승훈, 날짜: 2025년 11월 26일
-4. 주요 내용(4)
-   - UI/UX 개선 및 아이콘 디자인
-   - CUBE AI 아이콘, 핀 고정 아이콘 등 디자인 공유
-   - 하얀색 아이콘은 시인성 문제로 사용하지 않기로 결정
-   - 작성자: 김종민, 날짜: 2025년 11월 27일
-5. 주요 내용(5)
-   - 기능 개발 및 배포 현황
-   - guide line 기능 개발 (guideNum: "1", "2", "3"... / 기본값 "N")
-   - title 수동 변경, 파일 업로드, 링크 자동 복사, 지식블로그 등록 등 기능 개발
-   - 작성자: 안국진, 노승훈, 날짜: 2025년 11월 27일 ~ 12월 2일
-6. 주요 내용(6)
-   - 실시간 메시징 기능 개선
-   - websocket.unreadAiThreadMessageCount, websocket.unreadAiMessageRead 등 API 호출 문제 발생 및 해결 논의
-   - 운영 서버에서 "API call fail" 메시지 발생, 개발 환경과 운영 환경 간 차이점 논의
-   - 작성자: 권경록, 안국진, 날짜: 2025년 12월 5일 ~ 12월 8일
-7. 주요 내용(7)
-   - 서버 통신 포트 관련 논의
-   - 기존 9000번 포트(socket 통신), 9200번 포트(RestApi) 사용
-   - 공통 서버 포트 22223번으로 통일 필요성 논의
-   - 작성자: 권경록, 안국진, 날짜: 2025년 12월 8일
-현재 '[AI 비서] - Cube 개발자' 채널에서는 CUBE AI 기능 개발을 위한 기술적 논의가 활발히 진행되고 있으며, 주로 API 연동, UI/UX 개선, 실시간 메시징 기능 개선 등의 작업이 중심입니다.
+// li는 그대로
+ListItemRenderer = (props) => {
+  return <li>{props.children}</li>;
+};
+
+<ReactMarkdown
+  source={markdownText}
+  plugins={[remarkGfm]}
+  renderers={{
+    list: this.ListRenderer,
+    listItem: this.ListItemRenderer,
+    link: this.renderLink,              // 네가 이미 만든 커스텀 링크 렌더러
+    linkReference: this.renderLinkReference,
+  }}
+/>
