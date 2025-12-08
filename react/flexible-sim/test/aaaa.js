@@ -10,6 +10,22 @@ ListRenderer = (props) => {
   );
 };
 
+const fixListSpacing = (text) => {
+  let out = text;
+
+  // 1.내용 → 1. 내용
+  out = out.replace(/(^|\n)(\d+)\.(\S)/g, '$1$2. $3');
+
+  // -내용 / *내용 / +내용 → "- 내용" 스타일로
+  out = out.replace(/(^|\n)([-*+])(\S)/g, '$1$2 $3');
+
+  // 문장 바로 다음 줄에 오는 번호 목록 앞에 빈 줄 하나 추가
+  // "문장\n1. ..." → "문장\n\n1. ..."
+  out = out.replace(/([^\n])\n(\d+\.\s+)/g, '$1\n\n$2');
+
+  return out;
+};
+
 // li는 그대로
 ListItemRenderer = (props) => {
   return <li>{props.children}</li>;
