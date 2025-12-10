@@ -1,43 +1,103 @@
-// 숫자 리스트 / 불릿 리스트 구분해서 그려주는 list 렌더러
-ListRenderer = (props) => {
-  const { ordered, children } = props;
-  const Tag = ordered ? 'ol' : 'ul';
+🧩 사용자 메뉴얼(PPT용) 정리 문구 – 최종 다듬은 버전
 
-  return (
-    <Tag className={ordered ? 'md-ol' : 'md-ul'}>
-      {children}
-    </Tag>
-  );
-};
+⸻
 
-const fixListSpacing = (text) => {
-  let out = text;
+📌 Thread 생성
+	•	우측 상단 ‘AI Thread’ 버튼 클릭 시 생성
+	•	좌측 Threads 탭 상단 ‘+’ 버튼 클릭 시 생성
+	•	3초 이내 연속 생성 시 경고 문구 표시
 
-  // 1.내용 → 1. 내용
-  out = out.replace(/(^|\n)(\d+)\.(\S)/g, '$1$2. $3');
+⸻
 
-  // -내용 / *내용 / +내용 → "- 내용" 스타일로
-  out = out.replace(/(^|\n)([-*+])(\S)/g, '$1$2 $3');
+📌 좌측 하단 Threads 탭 기능 안내
+	•	Threads 탭 옆 숫자
+→ 전체 Thread 중 새로운 AI 응답이 있으나 읽지 않은 개수 표시
+	•	각 Thread 우측 숫자(N)
+→ 해당 Thread 내 읽지 않은 응답 존재 시 표시
+	•	Thread 생성(+)
+→ 클릭 시 새 Thread 생성 (3초 이내 중복 생성 시 경고 표시)
+	•	Thread 검색 기능
+	•	대소문자 구분 없이 기본 Thread명 또는 수정된 Thread명 검색
+	•	돋보기 아이콘 또는 Enter 키로 검색 실행
+	•	검색 후 결과에 맞춰 Thread 리스트 재정렬
+	•	검색 초기화(X)
+→ 검색 정렬된 리스트를 전체 Thread 리스트로 복원
+	•	Thread 삭제(X 버튼)
+	•	마우스 오버 시 표시
+	•	클릭 시 삭제 확인 팝업 표시
+	•	확인(Enter): Thread 삭제
+	•	취소(Esc): 삭제 취소
+	•	Thread 좌클릭
+→ 우측 패널에서 Thread 열기 (열린 Thread는 진한 색상 표시)
+	•	Thread 우클릭
+→ 팝업 창으로 Thread 열기 (팝업은 주황색 텍스트로 표시)
+	•	Thread 정렬 기준
+→ 가장 최근 AI 응답이 도착한 순서로 자동 정렬
 
-  // 문장 바로 다음 줄에 오는 번호 목록 앞에 빈 줄 하나 추가
-  // "문장\n1. ..." → "문장\n\n1. ..."
-  out = out.replace(/([^\n])\n(\d+\.\s+)/g, '$1\n\n$2');
+⸻
 
-  return out;
-};
+⌨️ 단축키
+	•	Ctrl + E
+	•	우측 패널에 Thread가 열려 있지 않은 경우: 새 Thread 생성
+	•	Thread가 열려 있으나 접혀 있는 경우: 가장 최근 Thread 열기
 
-// li는 그대로
-ListItemRenderer = (props) => {
-  return <li>{props.children}</li>;
-};
+⸻
 
-<ReactMarkdown
-  source={markdownText}
-  plugins={[remarkGfm]}
-  renderers={{
-    list: this.ListRenderer,
-    listItem: this.ListItemRenderer,
-    link: this.renderLink,              // 네가 이미 만든 커스텀 링크 렌더러
-    linkReference: this.renderLinkReference,
-  }}
-/>
+💬 CH/DM 내 신규 Rich Message 기능
+	•	출처 아이콘
+→ AI 응답의 출처를 팝업으로 표시하며, 해당 출처로 이동 가능
+	•	지식블로그 보내기 아이콘
+→ 메시지를 지식블로그 발행용 편집 화면으로 이동
+	•	마크다운 뷰어 아이콘
+→ 메시지를 Markdown 형식으로 크게 팝업 표시(가독성 향상)
+	•	삭제 아이콘
+→ 해당 메시지 삭제
+
+⸻
+
+📌 우측 패널 및 팝업 Thread 화면 안내
+
+🔹 상단 Header
+	•	Thread 제목
+	•	우클릭 시 Thread ID 복사
+	•	연필 아이콘 → Thread 명 수정
+	•	수정 입력란 표시
+	•	체크 버튼: 입력값으로 Thread명 저장
+	•	X 버튼: 수정 취소 및 원래 제목 상태로 복구
+	•	핀(Pin) 아이콘 → Thread 고정 여부
+	•	회색 핀(default): 고정되지 않음 (생성 30일 경과 시 자동 삭제)
+	•	주황색 핀: 고정됨 (30일 이후에도 삭제되지 않음)
+
+⸻
+
+🔹 메시지 리스트
+	•	Thinking 메시지
+→ 사용자의 질문에 대한 AI의 내부 처리 과정을 시각적으로 표시
+	•	메시지 우클릭
+→ 해당 메시지 내용 복사
+	•	부가 기능 아이콘
+	•	답변 품질 불만족 체크
+	•	응답 속도 불만족 체크
+	•	복사 아이콘: 메시지를 선택한 CH/DM으로 이동
+
+⸻
+
+🔹 하단 질의 입력 영역
+	•	‘+’ 버튼
+→ 최근 5개의 Thread 목록 + ‘새 Thread 생성’ 메뉴 표시
+	•	‘열기’ 버튼
+→ 가이드 창 열기 → 선택한 가이드에 따라 새 Thread 생성 및 그에 맞는 AI 응답 제공
+	•	파일 업로드 아이콘
+→ 한 번에 1개 파일만 업로드 가능
+	•	전송 버튼
+→ 질의문 전송 (Enter 키로도 전송 가능)
+
+⸻
+
+🛠 운영자 메뉴얼
+
+📌 AI 설정
+	•	AI 검색 화면 템플릿 선택
+→ 6가지 테마 중 선택 가능
+	•	AI 검색 기간 설정
+→ (추가 내용 작성 예정)
