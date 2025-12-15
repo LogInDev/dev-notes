@@ -24,24 +24,31 @@ class RangeSlider extends React.Component {
 
   initValue(props, min, max) {
 
-    let doc = document;
+    copyPopupId(popupId) {
+  const doc =
+    (this.props.popupWindow && this.props.popupWindow.document) || document;
 
-      doc = this.props.popupWindow && this.props.popupWindow.document;
-      let textarea = doc.createElement('textarea');
-      textarea.textContent = popupId;
-      doc.body.appendChild(textarea);
+  const textarea = doc.createElement('textarea');
+  textarea.value = String(popupId);   // 엔터 안 붙는 핵심
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-9999px';
+  textarea.style.left = '-9999px';
 
-      let selection = doc.getSelection();
-      let range = doc.createRange();
-      range.selectNode(textarea);
+  doc.body.appendChild(textarea);
 
-      selection.removeAllRanges();
-      selection.addRange(range);
-console.log('00000', range)
-console.log('1111111', selection)
-console.log('222222', doc)
-      doc.execCommand('copy');
-      selection.removeAllRanges();
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  try {
+    doc.execCommand('copy');
+  } catch (e) {
+    console.error('copy failed', e);
+  }
+
+  doc.body.removeChild(textarea);
+}
     if (props.value != null) {
       return this.clampNumber(props.value, min, max);
     }
