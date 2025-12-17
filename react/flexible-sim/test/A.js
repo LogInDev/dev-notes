@@ -23,6 +23,14 @@ class RangeSlider extends React.Component {
   }
 
   initValue(props, min, max) {
+    const summary =
+  threadInfoSummary && threadInfoSummary[currentThreadId];
+
+const favoriteStatus =
+  (summary &&
+    summary.channel_info &&
+    summary.channel_info.isFavorite === 'Y') ||
+  (foundThread && foundThread.favorite === 'Y');
     const favoriteStatus = !!(
   threadInfoSummary && threadInfoSummary[currentThreadId]
     ? threadInfoSummary[currentThreadId].channel_info &&
