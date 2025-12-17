@@ -24,6 +24,12 @@ class RangeSlider extends React.Component {
 
   initValue(props, min, max) {
 
+    const foundThread = threadList.find(thread => thread.channel_id === currentThreadId);
+
+    const favoriteStatus = threadInfoSummary && threadInfoSummary[currentThreadId]
+          ? threadInfoSummary[currentThreadId].channel_info.isFavorite
+          : (foundThread && foundThread.favorite) || false;
+
     copyPopupId(popupId) {
   const doc =
     (this.props.popupWindow && this.props.popupWindow.document) || document;
