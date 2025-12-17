@@ -23,39 +23,9 @@ class RangeSlider extends React.Component {
   }
 
   initValue(props, min, max) {
-    const foundThread = threadList.find(
-  thread => thread.channel_id === currentThreadId
-);
-
-const summary = threadInfoSummary && threadInfoSummary[currentThreadId];
-const summaryFavorite =
-  summary &&
-  summary.channel_info &&
-  typeof summary.channel_info.isFavorite === 'boolean'
-    ? summary.channel_info.isFavorite
-    : null;
-
-const favoriteStatus =
-  summaryFavorite !== null
-    ? summaryFavorite
-    : (foundThread && foundThread.favorite) || false;
-    
-const foundThread = threadList.find(
-  thread => thread.channel_id === currentThreadId
-);
-
-const favoriteStatus =
-  (threadInfoSummary &&
-    threadInfoSummary[currentThreadId] &&
-    threadInfoSummary[currentThreadId].channel_info &&
-    threadInfoSummary[currentThreadId].channel_info.isFavorite) ??
-  (foundThread && foundThread.favorite) ??
-  false;
-    const foundThread = threadList.find(thread => thread.channel_id === currentThreadId);
-
-    const favoriteStatus = threadInfoSummary && threadInfoSummary[currentThreadId]
-          ? threadInfoSummary[currentThreadId].channel_info.isFavorite
-          : (foundThread && foundThread.favorite) || false;
+    const favoriteStatus = (threadInfoSummary && threadInfoSummary[currentThreadId]
+          ? (threadInfoSummary[currentThreadId].channel_info && threadInfoSummary[currentThreadId].channel_info.isFavorite)
+          : (foundThread && foundThread.favorite) || false);
 
     copyPopupId(popupId) {
   const doc =
