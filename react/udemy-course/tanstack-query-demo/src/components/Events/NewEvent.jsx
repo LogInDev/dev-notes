@@ -39,8 +39,9 @@ export default function NewEvent() {
       {isError &&
         <ErrorBlock
           title="Failed to create event"
-          message={error.info?.message || 'Failed to create event. Please check yopur inputs and try again later.'}
-        />}
+          message={error.info?.message || 'Failed to create event. Please check your inputs and try again later.'}
+        />
+      }
     </Modal>
   );
 }
