@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 
 import IconButton from '../UI/IconButton.jsx';
 import MinusIcon from '../UI/Icons/MinusIcon.jsx';
@@ -27,7 +27,8 @@ function isPrime(number) {
   return true;
 }
 
-export default function Counter({ initialCount }) {
+// ConfigureConter 컴포넌트로 로직을 분리했기 때문에 memo를 제거해도 됨(memo가 의미가 없음)
+const Counter = memo(function Counter({ initialCount }) {
   log('<Counter /> rendered', 1);
   const initialCountIsPrime = isPrime(initialCount);
 
@@ -58,4 +59,6 @@ export default function Counter({ initialCount }) {
       </p>
     </section>
   );
-}
+});
+
+export default Counter;
