@@ -1,9 +1,14 @@
 package tobyspring.splearn.domain;
 
+import lombok.Getter;
+import lombok.ToString;
+
 import java.util.Objects;
 
 import static org.springframework.util.Assert.state;
 
+@Getter
+@ToString
 public class Member {
     private String email;
 
@@ -19,22 +24,6 @@ public class Member {
         this.passwordHash = Objects.requireNonNull(passwordHash);
 
         this.status = MemberStatus.PENDING;
-    }
-
-    public String getEmail() {
-        return email;
-    }
-
-    public String getNickname() {
-        return nickname;
-    }
-
-    public String getPasswordHash() {
-        return passwordHash;
-    }
-
-    public MemberStatus getStatus() {
-        return status;
     }
 
     public void activate() {
