@@ -3,16 +3,13 @@ package tobyspring.splearn.domain;
 import lombok.Getter;
 import lombok.ToString;
 
-import java.util.Objects;
-import java.util.regex.Pattern;
-
 import static java.util.Objects.requireNonNull;
 import static org.springframework.util.Assert.state;
 
 @Getter
 @ToString
 public class Member {
-    private String email;
+    private Email email;
 
     private String nickname;
 
@@ -25,14 +22,7 @@ public class Member {
     public static Member create(MemberCreateRequest createRequest, PasswordEncoder passwordEncoder) {
         Member member = new Member();
 
-        String email = createRequest.email();
-
-        Pattern EMAIL_PATTERN = Pattern.compile("^[a-zA-Z0-9_+&*-]+(?:\\.[a-zA-Z0-9_+&*-]+)*@(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,7}$");
-        if(!EMAIL_PATTERN.matcher(email).matches()) {
-            throw new IllegalArgumentException("이메일 형식이 바르지 않습니다: "  + email);
-        }
-
-        member.email = requireNonNull(createRequest.email());
+        member.email = new Email(createRequest.email());
         member.nickname = requireNonNull(createRequest.nickname());
         member.passwordHash = requireNonNull(passwordEncoder.encode(createRequest.password()));
 
