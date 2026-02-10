@@ -498,3 +498,29 @@ const GrafanaIcon = styled(Icons.IconDetailManageGroup)`
     cursor: auto;
   }
 `;
+
+
+
+// '@hcp-web-dwp/utils'
+
+var useIsAiccSite = function useIsAiccSite() {
+  var context = React.useContext(RouteContext);
+  var profile = context.profile;
+  var siteId = profile && profile.SITE_ID;
+  var check = [2593, 5783].indexOf(siteId) > -1;
+  return check;
+};
+var useIsWxSite = function useIsWxSite() {
+  var context = React.useContext(RouteContext);
+  var profile = context.profile;
+  var siteId = profile && profile.SITE_ID;
+  var check = [4944, 4946, 2333].indexOf(siteId) > -1;
+  return check;
+};
+var useIsCqSite = function useIsCqSite() {
+  var context = React.useContext(RouteContext);
+  var profile = context.profile;
+  var siteId = profile && profile.SITE_ID;
+  var check = [4983, 4945, 2253].indexOf(siteId) > -1;
+  return check;
+};
