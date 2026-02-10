@@ -524,3 +524,14 @@ var useIsCqSite = function useIsCqSite() {
   var check = [4983, 4945, 2253].indexOf(siteId) > -1;
   return check;
 };
+
+
+이거 리펙토링해줘.
+  그리고 고민인게 handleOpenGrafana를 useCallback으로 profile만 보는데
+isCqSite,isWxSite, isAiccSite,를 같이 안봐도 되지않아?
+단순히각 메소드이 check변수 로직만 추가하면될까?
+아니면 나중에 
+  @hcp-web-dwp/utils 이게 수정되면 여기도 수정해줘야해서 반복작업이 필요할까봐 고민이네...
+
+
+  
