@@ -9,7 +9,9 @@ public static final String DASHBOARD_RESOURCES_MONTH = "dashboard-resource-month
 
 
  
-
+IndexCoordinates index = IndexCoordinates.of(
+        "dashboard-resource-monthly-*,-dashboard-resource-monthly-*_temp"
+);
 
 
  dashboard-resource-monthly-2026_new_temp
