@@ -1,0 +1,142 @@
+import { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
+import { fetchServiceDetail } from '@/store/reduxStore/dashboard/reducer';
+import { Skeleton, Spin } from 'signlw';
+import dayjs from 'dayjs';
+import { intlObj } from '@/utils/commonUtils';
+import message from '@/language/message';
+import PageLayout from '@/components/Organisms/PageLayout';
+import Tabs from '@/components/Organisms/Tabs';
+import Header from '@/components/Templates/Header';
+import Ellipsis from '@/components/Atoms/Ellipsis';
+import Division from '@/components/Atoms/Division';
+import ModelName from '@/components/Atoms/ModelName';
+import ContentHeader from '@/components/Organisms/ContentHeader';
+import ApiMonitoring from './apiMonitoring';
+import LlmDetail from './llmTokenMonitoring';
+import CtsMonitoring from './ctsMonitoring';
+import CtsFileList from './ctsFileList';
+
+const DashDetail = () => {
+  const { svcId } = useParams();
+
+  const dispatch = useDispatch();
+  const apiCallState = useSelector((state) => state.get('dashboard')) || {};
+  const dtlState = apiCallState?.chart?.serviceDetail || {};
+  const svcNm = dtlState?.svcNm;
+  const catNm = dtlState?.catPath;
+  const svcType = dtlState?.svcType;
+  const svcModel = dtlState?.svcModel;
+  const [activeTab, setActiveTab] = useState('api');
+
+  const fetchServiceDetailLoading =
+    apiCallState?.chart?.fetchServiceDetailLoading || false;
+
+  useEffect(() => {
+    dispatch(fetchServiceDetail({ svcId, svcType }));
+  }, [dispatch, svcId, svcType]);
+
+  const baseItems = [
+    {
+      key: 'api',
+      label: intlObj.get(message['store.apiMonitoring']),
+      children: <ApiMonitoring />,
+    },
+  ];
+
+  const additionalItems = [
+    {
+      key: 'cts',
+      label: intlObj.get(message['store.ctsMonitoring']),
+      children: <CtsMonitoring />,
+    },
+    {
+      key: 'ctsFile',
+      label: intlObj.get(message['store.ctsFileList']),
+      children: <CtsFileList />,
+    },
+    {
+      key: 'llmToken',
+      label: intlObj.get(message['store.llmTokenMonitoring']),
+      children: <LlmDetail />,
+    },
+  ];
+
+  const items = [
+    ...baseItems,
+    ...(svcType === 'CTS'
+      ? additionalItems.filter(
+          (item) => item.key === 'cts' || item.key === 'ctsFile',
+        )
+      : []),
+    ...(svcType === 'LLM'
+      ? additionalItems.filter((item) => item.key === 'llmToken')
+      : []),
+  ];
+
+  const handleTabChange = (key) => {
+    setActiveTab(key);
+  };
+
+  return (
+    <PageLayout>
+      <Header
+        path={[
+          intlObj.get(message['store']),
+          intlObj.get(message['store.apiMonitoring']),
+        ]}
+      />
+      <PageLayout.Article>
+        {fetchServiceDetailLoading ? (
+          <Skeleton
+            active={true}
+            paragraph={{ rows: 0, style: { height: '38px' } }}
+          />
+        ) : (
+          <>
+            <ContentHeader
+              $border={false}
+              title={
+                <Division maxWidth={1150}>
+                  <Ellipsis>
+                    {svcNm}
+                    {svcType === 'LLM' && (
+                      <ModelName delimiterLeft={true}>{svcModel}</ModelName>
+                    )}
+                  </Ellipsis>
+                </Division>
+              }
+              subTitle={catNm}
+              extraContent={
+                <Division flex={true} gap={4}>
+                  <Division.SubTitle>
+                    {intlObj.get(message['store.updDttm'])}
+                  </Division.SubTitle>
+                  <div>
+                    {dtlState?.updDttm
+                      ? dayjs(dtlState?.updDttm).format('YYYY.MM.DD')
+                      : '-'}
+                  </div>
+                </Division>
+              }
+              spacing={0}
+            />
+          </>
+        )}
+        <Spin spinning={fetchServiceDetailLoading}>
+          <Tabs
+            className={'listTab'}
+            items={items}
+            onChange={handleTabChange}
+            border={true}
+            spacing={20}
+            activeKey={activeTab}
+          />
+        </Spin>
+      </PageLayout.Article>
+    </PageLayout>
+  );
+};
+
+export default DashDetail;
