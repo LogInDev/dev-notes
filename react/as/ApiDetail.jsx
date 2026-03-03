@@ -5,11 +5,13 @@ import {
   useState,
   useMemo,
   Fragment,
+  useCallback
 } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { Spin } from 'signlw';
 import dayjs from 'dayjs';
+import axios from 'axios';
 import { useServicePermission } from '@/hooks/useServicePermission';
 import { useToast } from '@/utils/ToastProvider';
 import {
@@ -46,6 +48,9 @@ import Subscription from './subscription';
 import Manager from './manager';
 import History from './history';
 import MyRegistPopup from '../MyRegist/popup';
+import ContentHeader from '@/components/Organisms/ContentHeader';
+import Input from '@/components/Atoms/Input';
+import IpList from './detail/ipList';
 
 /* 퀵메뉴 아이콘 모음 */
 import basicIcon from '@/assets/images/quickmenu/icon_quickmenu_bagic_off.svg';
@@ -73,6 +78,16 @@ const defaultConfirm = {
   hideCancel: false,
 };
 const defaultDeleteDate = dayjs().add(30, 'day').endOf('day');
+
+const DRM_STATUS = {
+  idle: 'idle',
+  checking: 'checking',
+  valid: 'valid',
+  duplicated: 'duplicated',
+  invalid: 'invalid',
+};
+
+const isValidDrmEmpNoFormat = (value) => /^X99\d+$/i.test(value?.trim());
 
 const ApiDetail = () => {
   const { addToast } = useToast();
@@ -157,6 +172,9 @@ const ApiDetail = () => {
   const serviceDetail = detailState?.serviceDetail || {};
   const isDeleted = serviceDetail?.isDeleted;
 
+  // const isDrm = useMemo(() => serviceDetail?.svcType === "DRM", [serviceDetail]);
+  const isDrm = true;
+
   // API 목록 관련 상태
   const listState = detailPageState?.list || {};
   const apiList = listState?.apiList || [];
@@ -198,6 +216,7 @@ const ApiDetail = () => {
   const listRef = useRef(null);
   const subscriptionRef = useRef(null);
   const historyRef = useRef(null);
+
   const refs =
     hasPermission || isAdmin
       ? [listRef, subscriptionRef, historyRef]
@@ -208,6 +227,13 @@ const ApiDetail = () => {
   const [confirm, setConfirm] = useState(defaultConfirm);
   const [openDeleteReservationModal, setOpenDeleteReservationModal] =
     useState(false);
+    
+  const [drmEmpNo, setDrmEmpNo] = useState("");
+  const [drmStatus, setDrmStatus] = useState(DRM_STATUS.idle);
+  const drmCacheRef = useRef(new Map());
+  const drmVerifiedEmpNoRef = useRef(null);
+  
+  const [drmAllowIp, setDrmAllowIp] = useState("");
 
   useEffect(() => {
     dispatch(increaseViewCount(svcId));
@@ -327,6 +353,74 @@ const ApiDetail = () => {
     setConfirm(defaultConfirm);
   };
 
+  const verifyDrmEmpNo = useCallback(async () => {
+    const empNoRaw = (drmEmpNo || '').trim();
+    const empNo = empNoRaw.toUpperCase();
+
+    if(!empNoRaw) {
+      addToast("시스템 계정 사번을 입력해 주세요. (예: X99...)", "warning");
+      return;
+    }
+
+    if(!isValidDrmEmpNoFormat(empNo)) {
+      addToast(
+        "사번 형식이 올바르지 않습니다. X99로 시작하는 사번만 입력해 주세요.",
+        "error"
+      );
+      setDrmStatus(DRM_STATUS.invalid);
+      drmVerifiedEmpNoRef.current = null;
+      return;
+    }
+
+    const cached = drmCacheRef.current.get(empNo);
+    if(cached) {
+      setDrmStatus(cached);
+      drmVerifiedEmpNoRef.current = cached === DRM_STATUS.valid ? empNo : null;
+      return;
+    }
+
+    try {
+      setDrmStatus(DRM_STATUS.checking);
+
+      const res = await axios.get(
+        `${process.env.VITE_REACT_APP_API_STORE_URL}/drm/empNo/verify`,
+        {params: {empNo}}
+      );
+
+      const statusRaw = res?.data?.response?.status || res?.data?.status;
+      const normalized =
+        statusRaw === 'VALID'
+          ? DRM_STATUS.valid
+          : statusRaw === 'DUPLICATED'
+            ? DRM_STATUS.duplicated
+            : DRM_STATUS.invalid;
+
+      drmCacheRef.current.set(empNo, normalized);
+      setDrmStatus(normalized);
+      drmVerifiedEmpNoRef.current = normalized === DRM_STATUS.valid ? empNo : null;
+
+      if (normalized === DRM_STATUS.duplicated) {
+        addToast('이미 등록된 시스템 계정입니다.', 'warning');
+      } else if (normalized === DRM_STATUS.invalid) {
+        addToast('유효하지 않은 시스템 계정입니다.', 'error');
+      } else {
+        addToast('유효한 시스템 계정입니다.', 'success');
+      }
+    } catch (e) {
+      // 네트워크/서버 오류는 invalid로 캐시하지 않음(재시도 가능)
+      setDrmStatus(DRM_STATUS.idle);
+      drmVerifiedEmpNoRef.current = null;
+      addToast('사번 유효성 확인 중 오류가 발생했습니다.', 'error');
+    }
+  }, [drmEmpNo, addToast]);
+
+
+  const canRequestSubscribeForDrm = useMemo(() =>{
+    if (!isDrm) return true;
+    const empNo = (drmEmpNo || '').trim().toUpperCase();
+    return drmStatus === DRM_STATUS.valid && drmVerifiedEmpNoRef.current === empNo;
+  }, [isDrm, drmEmpNo, drmStatus]);
+
   // 컨펌 창 오픈 핸들링
   const handleOpenConfirm = (type) => {
     if (type === 'requestSubscriptionPermission') {
@@ -350,6 +444,19 @@ const ApiDetail = () => {
         });
       }
     } else if (type === 'requestSubscribe') {
+      if(isDrm && !canRequestSubscribeForDrm) {
+        // setConfirm({
+        //   open: true,
+        //   title: intlObj.get(message['store.subReq']),
+        //   desc:
+        //     "DRM 서비스 구독 전, '시스템 계정 사번' 유효성 확인이 필요합니다.\n사번 입력 후 '유효성 확인'을 진행해주세요.",
+        //   okText: intlObj.get(message['store.ok']),
+        //   onOk: () => handleCloseConfirm(),
+        //   hideCancel: true,
+        // });
+        return;
+      }
+
       if (checkedList?.length === 0) {
         setConfirm({
           open: true,
@@ -438,6 +545,11 @@ const ApiDetail = () => {
 
   // 구독 신청 시 핸들링
   const handleRequestSubscribe = () => {
+    if (isDrm && !canRequestSubscribeForDrm) {
+      addToast("DRM 서비스는 '시스템 계정 사번' 유효성 확인 후 구독 신청 가능합니다.", 'warning');
+      return;
+    }
+
     const targetApiList = apiList.filter((api) =>
       checkedList.includes(api?.apiId),
     );
@@ -588,6 +700,19 @@ const ApiDetail = () => {
       : []),
   ];
 
+  const handleCopyRootKey = async () => {
+    try{
+      const rootKey = serviceDetail?.rootKey;
+      if(!rootKey){
+        console.log('toast - root key정보가 없습니다')
+        return;
+      }
+      await navigator.clipboard.writeText(rootKey);
+    } catch{
+      console.error('rootkey 복사실패')
+    }
+  }
+
   return (
     <PageLayout>
       <Header
@@ -613,6 +738,125 @@ const ApiDetail = () => {
           )}
           <Divide $border={false} top={20} bottom={0} />
           <Spin spinning={!isAuthorized || fetchLoading}>
+          <Divide $border={false} top={20} bottom={0} />
+          {isDrm && (
+            <>
+              <div>
+                <ContentHeader 
+                  $border={true}
+                  title="Root Key"
+                  spacing={20}
+                />
+                <Division flex={true} gap={10} alignItems={"center"}>
+                  <div style={{ wordBreak: "break-all", opacity: 0.9}}>
+                    {serviceDetail?.rootKey ? serviceDetail.rootKey : "qzLD1O9mBxg5OktLXG+PkA=="}
+                  </div>
+                  <Buttons.Outlined type={'grey'} onClick={verifyDrmEmpNo} minWidth='80'>
+                    {/* {intlObj.get(message['store.add'])} */}
+                    수정
+                  </Buttons.Outlined>
+                </Division>
+                  {false && (
+                    <Division flex={true} gap={10} alignItems={"center"}>
+                      <Input
+                        value={drmEmpNo}
+                        onChange={(e) => {
+                          setDrmEmpNo(e.target.value);
+                          setDrmStatus(DRM_STATUS.idle);
+                          drmVerifiedEmpNoRef.current = null;
+                        }}
+                        placeholder="예: X990001"
+                        maxLength={100}
+                      />
+                      <Buttons.Outlined type={'grey'} onClick={verifyDrmEmpNo} minWidth='80'>
+                      {/* {intlObj.get(message['store.add'])} */}
+                      유효성 확인
+                    </Buttons.Outlined>
+                    </Division>
+                  )}
+              </div>
+                <Divide $border={false} top={20} bottom={0} />
+              <div>
+                <ContentHeader
+                  // title={intlObj.get(message['store.registApiDetailInfo'])}
+                  title='허용 IP 관리'
+                  $border={true}
+                  spacing={20}
+                />
+                <Division flex={true} gap={10} alignItems={"center"}>
+                  <Input
+                    value={drmAllowIp}
+                    onChange={(e) => {
+                      setDrmAllowIp(e.target.value);
+                      setDrmStatus(DRM_STATUS.idle);
+                      drmVerifiedEmpNoRef.current = null;
+                    }}
+                    placeholder="허용 IP를 입력하세요. ( 예 : 10.0.0.0/25 )"
+                    maxLength={100}
+                    maxWidth={350}
+                  />
+                  <Buttons.Outlined type={'grey'} onClick={verifyDrmEmpNo} minWidth='80'>
+                    {/* {intlObj.get(message['store.add'])} */}
+                    추가
+                  </Buttons.Outlined>
+                </Division>
+                <Divide top={10} bottom={0} $border={false} />
+                <Spin spinning={fetchApiListLoading}>
+                  <IpList />
+                </Spin>
+              </div>
+                <Divide top={30} bottom={0} $border={false} />
+            </>
+          )}
+
+          <Spin spinning={!isAuthorized || fetchLoading}>
+            {isDrm && (
+              <>
+                <Divide $border={false} top={20} bottom={0} />
+
+                <ContentHeader 
+                  $border={true}
+                  title="시스템 계정 사번"
+                  spacing={20}
+                />
+
+                <Division flex={true} gap={20} alignItems={'center'} mb={20}>
+                  <Division.SubTitle>
+                    DRM  서비스 구독 전, X99로 시작하는 시스템 계정 사번 확인이 필요합니다.
+                  </Division.SubTitle>
+                </Division>
+
+                <Division flex={true} gap={10} alignItems={"center"}>
+                  <Input
+                    value={drmEmpNo}
+                    onChange={(e) => {
+                      setDrmEmpNo(e.target.value);
+                      setDrmStatus(DRM_STATUS.idle);
+                      drmVerifiedEmpNoRef.current = null;
+                    }}
+                    placeholder="예: X990001"
+                    maxLength={100}
+                    maxWidth={350}
+                  />
+                  <Buttons.Outlined type={'grey'} onClick={verifyDrmEmpNo} minWidth='80'>
+                  {/* {intlObj.get(message['store.add'])} */}
+                  유효성 확인
+                </Buttons.Outlined>
+                </Division>
+
+                <Divide $border={false} top={10} bottom={0} />
+
+                <div style={{fontSize: 13, opacity: 0.85}}>
+                    {drmStatus === DRM_STATUS.valid && "유효한 시스템 계정입니다."}
+                    {drmStatus === DRM_STATUS.duplicated && "이미 등록된 시스템 계정입니다."}
+                    {drmStatus === DRM_STATUS.invalid && "유효하지 않은 시스템 계정입니다."}
+                    {drmStatus === DRM_STATUS.idle && "사번 입력 후 '유효성 확인'을 눌러주세요"}
+                </div>
+                <Divide $border={false} top={10} bottom={0} />
+              </>
+            )}
+          </Spin>
+
             <Division flex={true} gap={10} justifyContent={'center'}>
               <Buttons.Basic type={'line'} onClick={navigateToList}>
                 {intlObj.get(message['store.list'])}
@@ -622,7 +866,7 @@ const ApiDetail = () => {
                   {isCancelableSubscription && (
                     // 종료 예정인 경우 > 구독 해제 가능한 API 가 남아있는 경우
                     <Buttons.Basic
-                      type={'primary'}
+                      type={`${drmStatus !== DRM_STATUS.valid ? 'grey' : 'primary'}`} 
                       onClick={() => handleOpenConfirm('cancelSubscribe')}
                     >
                       {intlObj.get(message['store.subCcl'])}
@@ -631,19 +875,19 @@ const ApiDetail = () => {
                   {hasPermission || isAdmin ? (
                     // 종료 예정인 경우 > 등록자, 담당자, CP 관리자인 경우 삭제 취소 가능
                     <Buttons.Basic
-                      type={'primary'}
+                      type={`${drmStatus !== DRM_STATUS.valid ? 'grey' : 'primary'}`}
                       onClick={() => handleOpenConfirm('cancelDeleteReserve')}
                     >
                       {intlObj.get(message['store.cancelDelete'])}
                     </Buttons.Basic>
                   ) : (
-                    <Buttons.Basic type={'primary'} disabled>
+                    <Buttons.Basic type={`${drmStatus !== DRM_STATUS.valid ? 'grey' : 'primary'}`}  disabled>
                       {intlObj.get(message['store.toBeEnd'])}
                     </Buttons.Basic>
                   )}
                 </>
               ) : isDeleted === 'NOR' ? (
-                <Buttons.Basic type={'primary'} disabled>
+                <Buttons.Basic type={`${drmStatus !== DRM_STATUS.valid ? 'grey' : 'primary'}`}  disabled>
                   {intlObj.get(message['store.ended'])}
                 </Buttons.Basic>
               ) : (
@@ -654,13 +898,14 @@ const ApiDetail = () => {
                       {!SubscriptionAvailability ? (
                         subscriptionPermission === 'APR' ? (
                           // 구독 권한이 없는 경우 > 권한 요청 중인 경우
-                          <Buttons.Basic type={'primary'} disabled>
+                          // <Buttons.Basic type={'primary'} disabled>
+                          <Buttons.Basic type={`${drmStatus !== DRM_STATUS.valid ? 'grey' : 'primary'}`} disabled>
                             {intlObj.get(message['store.pendingPermissionApr'])}
                           </Buttons.Basic>
                         ) : (
                           // 구독 권한이 없는 경우
                           <Buttons.Basic
-                            type={'primary'}
+                            type={`${drmStatus !== DRM_STATUS.valid ? 'grey' : 'primary'}`}
                             onClick={() =>
                               handleOpenConfirm('requestSubscriptionPermission')
                             }
@@ -670,13 +915,13 @@ const ApiDetail = () => {
                         )
                       ) : isSubscriptionApprovalPending ? (
                         // 구독 권한이 있는 경우 > 승인 대기 중인 API 가 존재하는 경우
-                        <Buttons.Basic type={'primary'} disabled>
+                        <Buttons.Basic type={`${drmStatus !== DRM_STATUS.valid ? 'grey' : 'primary'}`}  disabled>
                           {intlObj.get(message['store.pendingSubApr'])}
                         </Buttons.Basic>
                       ) : isSubscribeAll ? (
                         // 구독 권한이 있는 경우 > 승인 대기 중인 API 가 없는 경우 > 모든 API 를 구독한 경우
                         <Buttons.Basic
-                          type={'primary'}
+                          type={`${drmStatus !== DRM_STATUS.valid ? 'grey' : 'primary'}`}
                           onClick={() => handleOpenConfirm('cancelSubscribe')}
                         >
                           {intlObj.get(message['store.subCcl'])}
@@ -684,7 +929,7 @@ const ApiDetail = () => {
                       ) : (
                         // 구독 권한이 있는 경우 > 승인 대기 중인 API 가 없는 경우
                         <Buttons.Basic
-                          type={'primary'}
+                          type={`${drmStatus !== DRM_STATUS.valid ? 'grey' : 'primary'}`}
                           onClick={() => handleOpenConfirm('requestSubscribe')}
                         >
                           {intlObj.get(message['store.subReq'])}
