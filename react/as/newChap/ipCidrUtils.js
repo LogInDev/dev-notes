@@ -15,16 +15,11 @@ export const isValidCidr = (cidr) => {
   return Number.isInteger(p) && p >= 0 && p <= 32;
 };
 
-/**
- * 단일 IP 또는 CIDR만 허용 (요구사항: ~ 대역 미사용)
- */
+// 요구사항: 단일 IP 또는 CIDR만 허용 (~ 대역 미사용)
 export const isValidIpOrCidr = (value) => {
   const v = (value || '').trim();
   if (!v) return false;
   return isValidIpv4(v) || isValidCidr(v);
 };
 
-/**
- * 표준화: 공백 제거
- */
 export const normalizeIpOrCidr = (value) => (value || '').trim();
