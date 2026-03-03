@@ -1,737 +1,393 @@
-import { useState, useMemo, Fragment } from 'react';
+import { useState, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { updateField } from '@/store/reduxStore/regist/reducer';
 import { useToast } from '@/utils/ToastProvider';
 import { produce } from 'immer';
-import { extractPathParameters, isValidApiPath } from '@/utils/urlUtils';
 import { intlObj } from '@/utils/commonUtils';
 import message from '@/language/message';
 import Buttons from '@/components/Atoms/Buttons';
 import Input from '@/components/Atoms/Input';
-import Select from '@/components/Atoms/Select';
-import Method from '@/components/Atoms/Method';
 import Division from '@/components/Atoms/Division';
 import Confirm from '@/components/Atoms/Confirm';
 import Ellipsis from '@/components/Atoms/Ellipsis';
-import Dropdown from '@/components/Atoms/Dropdown';
-import FormRow from '@/components/Atoms/FormRow';
-import FormCol from '@/components/Atoms/FormCol';
 import CollapseTable from '@/components/Organisms/CollapseTable';
-import ParameterForm from '@/components/Organisms/ParameterForm';
-import ParameterList from '@/components/Organisms/ParameterList';
-import BodyForm from '@/components/Organisms/BodyForm';
-import QosForm from '@/components/Organisms/QosForm';
 
-const methodOptions = [
-  { label: 'GET', value: 'get' },
-  { label: 'POST', value: 'post' },
-  { label: 'PUT', value: 'put' },
-  { label: 'DELETE', value: 'delete' },
-  { label: 'OPTION', value: 'option' },
-  { label: 'HEAD', value: 'head' },
-];
-const defaultPageSize = 10;
-const defaultApiForm = {
-  id: '',
-  path: '',
-  method: 'get',
-  qosList: [
-    {
-      term: 86400,
-      limitCnt: -99999,
-      qosType: 'CALL',
-    },
-  ],
-  showYn: 'Y',
-  info: {
-    parameters: [],
-  },
-};
+/**
+ * [CHANGED] IP 리스트(단일 IP / 대역 "~") 관리 컴포넌트
+ * - 3단(가로 3개 테이블) 구성
+ * - 각 단 상단: 입력 + 추가
+ * - 각 행: IP + (수정/삭제) 또는 (저장/취소)
+ */
+
+/** [CHANGED] 기본 삭제 컨펌 */
 const defaultDeleteConfirm = {
   open: false,
-  targetId: undefined, // 삭제할 요소의 ID
+  targetId: undefined,
+};
+
+/** [CHANGED] IPv4 유틸 */
+const isValidIpv4 = (ip) => {
+  const parts = ip.split('.');
+  if (parts.length !== 4) return false;
+  for (const p of parts) {
+    if (p.trim() === '') return false;
+    // leading zero 허용 여부는 조직 정책마다 다름.
+    // 여기서는 "숫자"만 체크하고 범위만 제한(0~255) -> 실무에서 흔한 방식
+    if (!/^\d+$/.test(p)) return false;
+    const n = Number(p);
+    if (Number.isNaN(n) || n < 0 || n > 255) return false;
+  }
+  return true;
+};
+
+const ipv4ToInt = (ip) => {
+  const [a, b, c, d] = ip.split('.').map((v) => Number(v));
+  // >>> 0 으로 unsigned 처리
+  return (((a << 24) | (b << 16) | (c << 8) | d) >>> 0);
+};
+
+/**
+ * [CHANGED] 입력값 정규화 & 검증
+ * - 단일: "1.2.3.4"
+ * - 대역: "1.2.3.4~1.2.3.20"
+ * - 공백은 모두 제거
+ * - 대역은 start <= end
+ */
+const normalizeAndValidateIpExpression = (raw) => {
+  const value = (raw || '').replace(/\s/g, ''); // 공백 제거
+  if (value === '') {
+    return { ok: false, normalized: '', type: 'empty', messageKey: 'store.placeholder.input.ip' };
+  }
+
+  if (value.includes('~')) {
+    const [start, end, ...rest] = value.split('~');
+    if (rest.length > 0) {
+      return { ok: false, normalized: value, type: 'invalid', message: '대역 형식이 올바르지 않습니다. (예: 10.0.0.1~10.0.0.10)' };
+    }
+    if (!start || !end) {
+      return { ok: false, normalized: value, type: 'invalid', message: '대역 시작/끝 IP를 모두 입력해주세요.' };
+    }
+    if (!isValidIpv4(start) || !isValidIpv4(end)) {
+      return { ok: false, normalized: value, type: 'invalid', message: '유효한 IPv4 형식이 아닙니다. (예: 10.0.0.1~10.0.0.10)' };
+    }
+    const s = ipv4ToInt(start);
+    const e = ipv4ToInt(end);
+    if (s > e) {
+      return { ok: false, normalized: value, type: 'invalid', message: '대역 시작 IP가 끝 IP보다 클 수 없습니다.' };
+    }
+    return { ok: true, normalized: `${start}~${end}`, type: 'range' };
+  }
+
+  // 단일 IP
+  if (!isValidIpv4(value)) {
+    return { ok: false, normalized: value, type: 'invalid', message: '유효한 IPv4 형식이 아닙니다. (예: 10.0.0.1)' };
+  }
+  return { ok: true, normalized: value, type: 'single' };
+};
+
+/** [CHANGED] 3단 분배: index % 3 로 고르게 배치(성능/단순/일관) */
+const splitIntoThreeColumns = (list) => {
+  const col0 = [];
+  const col1 = [];
+  const col2 = [];
+  for (let i = 0; i < list.length; i += 1) {
+    const t = i % 3;
+    if (t === 0) col0.push(list[i]);
+    else if (t === 1) col1.push(list[i]);
+    else col2.push(list[i]);
+  }
+  return [col0, col1, col2];
 };
 
 const IpList = () => {
-  const showYnOptions = [
-    { label: intlObj.get(message['store.showY']), value: 'Y' },
-    { label: intlObj.get(message['store.showN']), value: 'N' },
-  ];
-  const pageSizeOptions = [
-    { label: intlObj.get(message['store.pageSize10']), value: 10 },
-    { label: intlObj.get(message['store.pageSize30']), value: 30 },
-    { label: intlObj.get(message['store.pageSize50']), value: 50 },
-    { label: intlObj.get(message['store.pageSize100']), value: 100 },
-  ];
-
   const { addToast } = useToast();
-
   const dispatch = useDispatch();
 
-  const baseState =
-    useSelector((state) => state.get('regist'))?.form?.base || {};
-  const serviceType = baseState?.serviceType || 'API';
   const detailState =
     useSelector((state) => state.get('regist'))?.form?.detail || {};
-  const apiList = detailState?.apiList || [];
 
-  const [apiRegistForm, setApiRegistForm] = useState(defaultApiForm);
-  const [editingApiList, setEditingApiList] = useState([]);
-  const [pageSize, setPageSize] = useState(defaultPageSize);
+  // =========================
+  // [CHANGED] 기존 apiList -> ipList 로 변경
+  // 필요하면 여기만 apiList로 되돌리면 됨
+  // =========================
+  const ipList = detailState?.ipList || [];
+
+  // [CHANGED] 입력 폼을 3단 각각 따로 유지(성능 + UX)
+  const [inputByColumn, setInputByColumn] = useState(['', '', '']);
+
+  // [CHANGED] 수정중인 항목: { id, value }
+  const [editing, setEditing] = useState(null);
+
   const [deleteConfirm, setDeleteConfirm] = useState(defaultDeleteConfirm);
 
   // Redux State Update
   const handleUpdateDetailState = (field, updatedData) => {
-    dispatch(
-      updateField({ field: `form.detail.${field}`, value: updatedData }),
-    );
+    dispatch(updateField({ field: `form.detail.${field}`, value: updatedData }));
   };
 
-  // API 등록 폼 업데이트
-  const handleUpdateApiRegistForm = (field, updatedData) => {
-    setApiRegistForm(
-      produce(apiRegistForm, (draft) => {
-        draft[field] = updatedData;
+  /** [CHANGED] 중복 체크용: normalized 기준 Set */
+  const normalizedSet = useMemo(() => {
+    const s = new Set();
+    for (const item of ipList) {
+      // item: { id, value }
+      s.add(item?.value);
+    }
+    return s;
+  }, [ipList]);
+
+  /** [CHANGED] 3단 분배 데이터 */
+  const [col0, col1, col2] = useMemo(
+    () => splitIntoThreeColumns(ipList),
+    [ipList],
+  );
+
+  /** [CHANGED] 컬럼별 테이블 데이터(각 테이블 맨 위에 input row 삽입) */
+  const tableDataByColumn = useMemo(() => {
+    const makeFirstRow = (colIndex) => ({
+      id: `__input__${colIndex}`,
+      type: 'input',
+      value: '',
+      expandable: false,
+      colIndex,
+    });
+
+    return [
+      [makeFirstRow(0), ...col0],
+      [makeFirstRow(1), ...col1],
+      [makeFirstRow(2), ...col2],
+    ];
+  }, [col0, col1, col2]);
+
+  /** [CHANGED] 입력 변경 */
+  const handleChangeInput = (colIndex, next) => {
+    setInputByColumn((prev) =>
+      produce(prev, (draft) => {
+        draft[colIndex] = next;
       }),
     );
   };
 
-  // 수정중인 API 정보 업데이트
-  const handleUpdatedEditingApiItem = (id, field, updatedData) => {
-    setEditingApiList(
-      produce(editingApiList, (draft) => {
-        const targetItem = draft.find((item) => item.id === id);
-        targetItem.data[field] = updatedData;
-      }),
-    );
-  };
+  /** [CHANGED] 추가 */
+  const handleAddIp = (colIndex) => {
+    const raw = inputByColumn[colIndex];
+    const validated = normalizeAndValidateIpExpression(raw);
 
-  // API 등록 핸들링
-  const handleAddApi = () => {
-    const apiFormMethod = apiRegistForm.method;
-    const path = apiRegistForm.path;
-    const isDuplicated = apiList.some((api) => api.id === apiFormMethod + path);
-
-    if (path.trim() === '') {
-      addToast(intlObj.get(message['store.placeholder.input.path']), 'error');
-    } else if (!isValidApiPath(path)) {
-      addToast(intlObj.get(message['store.validation.path']), 'error');
-    } else {
-      if (isDuplicated) {
-        addToast(intlObj.get(message['store.validation.duplicate']), 'error');
+    if (!validated.ok) {
+      if (validated.messageKey) {
+        addToast(intlObj.get(message[validated.messageKey]), 'error');
       } else {
-        const nextData = produce(apiList, (draft) => {
-          const json = {
-            id: apiFormMethod + path,
-            path: path,
-            method: apiFormMethod,
-            qosList: apiRegistForm.qosList,
-            showYn: apiRegistForm.showYn,
-            info: {
-              parameters: [],
-              requestBody: {},
-            },
-          };
-
-          // path parameter 추가
-          const pathParameterNames = extractPathParameters(path);
-          for (const pathParameter of pathParameterNames) {
-            json.info.parameters.push({
-              in: 'path',
-              name: pathParameter,
-              required: true,
-              schema: {
-                type: 'string',
-              },
-              example: pathParameter,
-            });
-          }
-
-          // default body 세팅
-          if (apiFormMethod !== 'get') {
-            json.info.requestBody = {
-              content: {
-                'application/json': {
-                  schema: {
-                    type: 'object',
-                    properties: {},
-                  },
-                },
-              },
-            };
-          }
-
-          draft.push(json);
-        });
-        handleUpdateDetailState('apiList', nextData);
-        setApiRegistForm(defaultApiForm);
-        addToast(intlObj.get(message['store.success.addApi']), 'success');
+        addToast(validated.message || intlObj.get(message['store.validation.input']), 'error');
       }
+      return;
     }
-  };
 
-  // API 수정 시작 핸들링
-  const handleEditApi = (data) => {
-    const id = data.method + data.path;
-    setEditingApiList(
-      produce(editingApiList, (draft) => {
-        draft.push({
-          id: id,
-          data: { ...data },
-        });
-      }),
-    );
-  };
-
-  // 수정한 API 저장 핸들링
-  const handleSaveEditApi = (id) => {
-    const newData = editingApiList.find((item) => item.id === id);
-    const newMethod = newData.data.method;
-    const path = newData.data.path;
-    const pathParameterNames = extractPathParameters(path);
-    const isDuplicated = apiList.some(
-      (api) => api.id !== id && api.id === newMethod + path,
-    );
-
-    if (isDuplicated) {
+    if (normalizedSet.has(validated.normalized)) {
+      // 중복
       addToast(intlObj.get(message['store.validation.duplicate']), 'error');
-    } else {
-      const nextData = produce(apiList, (draft) => {
-        const editedApi = draft.find((item) => item.id === id);
-        const prevMethod = editedApi.method; // 수정되기 전의 method 값
-        editedApi.id = newMethod + path;
-        editedApi.path = path;
-        editedApi.method = newMethod;
-        editedApi.qosList = newData.data.qosList;
-        editedApi.showYn = newData.data.showYn;
-        editedApi.info = { ...newData.data.info };
-
-        // 메소드 변경하는 경우 body 핸들링
-        if (newMethod === 'get') {
-          delete editedApi.info.requestBody;
-        } else if (prevMethod === 'get') {
-          editedApi.info.requestBody = {
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {},
-                },
-              },
-            },
-          };
-        }
-
-        // path parameter 처리
-        const parameters = editedApi.info.parameters || [];
-        // path 가 변경됨에 따라 삭제된 path parameter 를 필터링한 목록
-        const filteredParameters = parameters.filter(
-          (param) =>
-            param.in !== 'path' ||
-            (param.in === 'path' && pathParameterNames.includes(param.name)),
-        );
-        for (const pathParameter of pathParameterNames) {
-          if (
-            !filteredParameters.some(
-              (param) => param.in === 'path' && param.name === pathParameter,
-            )
-          ) {
-            filteredParameters.push({
-              in: 'path',
-              name: pathParameter,
-              required: true,
-              schema: {
-                type: 'string',
-              },
-            });
-          }
-        }
-        editedApi.info.parameters = filteredParameters;
-      });
-      handleUpdateDetailState('apiList', nextData);
-      setEditingApiList(
-        produce(editingApiList, (draft) => {
-          return draft.filter((item) => item.id !== id);
-        }),
-      );
-      addToast(intlObj.get(message['store.success.editApi']), 'success');
+      return;
     }
+
+    const nextData = produce(ipList, (draft) => {
+      // id는 안정적으로 value 기반(중복 방지와도 일치)
+      draft.push({
+        id: validated.normalized,
+        value: validated.normalized,
+      });
+    });
+
+    handleUpdateDetailState('ipList', nextData); // [CHANGED]
+    handleChangeInput(colIndex, '');
+    addToast(intlObj.get(message['store.success.add']), 'success');
   };
 
-  // 수정중인 API 취소 핸들링
-  const handleCancelEditApi = (id) => {
-    setEditingApiList(
-      produce(editingApiList, (draft) => {
-        return draft.filter((item) => item.id !== id);
-      }),
-    );
+  /** [CHANGED] 수정 시작 */
+  const handleStartEdit = (record) => {
+    setEditing({ id: record.id, value: record.value });
+  };
+
+  /** [CHANGED] 수정 취소 */
+  const handleCancelEdit = () => {
+    setEditing(null);
     addToast(intlObj.get(message['store.success.cancelEditApi']), 'success');
   };
 
-  // API 삭제 핸들링
-  const handleDeleteApi = (id) => {
-    const nextData = produce(apiList, (draft) => {
-      return draft.filter((api) => api.id !== id);
+  /** [CHANGED] 수정 저장 */
+  const handleSaveEdit = () => {
+    if (!editing) return;
+
+    const validated = normalizeAndValidateIpExpression(editing.value);
+    if (!validated.ok) {
+      addToast(validated.message || intlObj.get(message['store.validation.input']), 'error');
+      return;
+    }
+
+    // 자기 자신 제외 중복 검사
+    const isDuplicated =
+      validated.normalized !== editing.id && normalizedSet.has(validated.normalized);
+
+    if (isDuplicated) {
+      addToast(intlObj.get(message['store.validation.duplicate']), 'error');
+      return;
+    }
+
+    const nextData = produce(ipList, (draft) => {
+      const idx = draft.findIndex((x) => x.id === editing.id);
+      if (idx >= 0) {
+        draft[idx].id = validated.normalized;
+        draft[idx].value = validated.normalized;
+      }
     });
-    handleUpdateDetailState('apiList', nextData);
+
+    handleUpdateDetailState('ipList', nextData); // [CHANGED]
+    setEditing(null);
+    addToast(intlObj.get(message['store.success.editApi']), 'success');
+  };
+
+  /** [CHANGED] 삭제 */
+  const handleDelete = (id) => {
+    const nextData = produce(ipList, (draft) => draft.filter((x) => x.id !== id));
+    handleUpdateDetailState('ipList', nextData); // [CHANGED]
     addToast(intlObj.get(message['store.success.deleteApi']), 'success');
   };
 
-  // 파라미터 추가 핸들링
-  const handleAddParameter = (path, method, data) => {
-    const nextData = produce(apiList, (draft) => {
-      const targetApi = draft.find((api) => api.id === method + path);
-      const targetInfo = targetApi.info;
-      targetInfo.parameters.push(data);
-    });
-    handleUpdateDetailState('apiList', nextData);
-    addToast(intlObj.get(message['store.success.addParameter']), 'success');
-  };
-
-  // 파라미터 저장 핸들링
-  const handleSaveParameter = (path, method, _in, name, data) => {
-    const nextData = produce(apiList, (draft) => {
-      const targetApi = draft.find((api) => api.id === method + path);
-      const targetInfo = targetApi.info;
-      const targetParameters = targetInfo.parameters;
-      const targetParameterIndex = targetParameters.findIndex(
-        (param) => param.in + param.name === _in + name,
-      );
-      targetParameters[targetParameterIndex] = data;
-    });
-    handleUpdateDetailState('apiList', nextData);
-    addToast(intlObj.get(message['store.success.editParameter']), 'success');
-  };
-
-  // 파라미터 삭제 핸들링
-  const handleDeleteParameter = (path, method, _in, name) => {
-    const nextData = produce(apiList, (draft) => {
-      const targetApi = draft.find((api) => api.id === method + path);
-      const targetInfo = targetApi.info;
-      const targetParameters = targetInfo.parameters;
-      const targetParameterIndex = targetParameters.findIndex(
-        (param) => param.in + param.name === _in + name,
-      );
-      targetParameters.splice(targetParameterIndex, 1);
-    });
-    handleUpdateDetailState('apiList', nextData);
-    addToast(intlObj.get(message['store.success.deleteParameter']), 'success');
-  };
-
-  // 바디 없는경우 추가 핸들링
-  const handleAddBody = (path, method) => {
-    const nextData = produce(apiList, (draft) => {
-      const targetApi = draft.find((api) => api.id === method + path);
-      const targetInfo = targetApi.info;
-      targetInfo.requestBody = {
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {},
-            },
-          },
-        },
-      };
-    });
-    handleUpdateDetailState('apiList', nextData);
-    addToast(intlObj.get(message['store.success.addBody']), 'success');
-  };
-
-  // 바디 삭제 핸들링
-  const handleDeleteBody = (path, method) => {
-    const nextData = produce(apiList, (draft) => {
-      const targetApi = draft.find((api) => api.id === method + path);
-      const targetInfo = targetApi.info;
-      targetInfo.requestBody = {};
-    });
-    handleUpdateDetailState('apiList', nextData);
-    addToast(intlObj.get(message['store.success.deleteBody']), 'success');
-  };
-
-  // 바디 값 업데이트 핸들링
-  const handleUpdateBody = (path, method, updatedData) => {
-    const nextData = produce(apiList, (draft) => {
-      const targetApi = draft.find((api) => api.id === method + path);
-      const targetInfo = targetApi.info;
-      const requestBody = targetInfo.requestBody;
-      const bodyContent = requestBody.content || {};
-      const requestBodyType = Object.keys(bodyContent)[0];
-      bodyContent[requestBodyType].schema = updatedData;
-    });
-    handleUpdateDetailState('apiList', nextData);
-    addToast(intlObj.get(message['store.success.editBody']), 'success');
-  };
-
-  // 바디 requestBodyType 업데이트 핸들링
-  const handleUpdateRequestBodyType = (path, method, requestType) => {
-    const nextData = produce(apiList, (draft) => {
-      const targetApi = draft.find((api) => api.id === method + path);
-      const targetInfo = targetApi.info;
-      const requestBody = targetInfo.requestBody;
-      requestBody.content = {
-        [requestType]: { schema: { type: 'object' } },
-      };
-    });
-    handleUpdateDetailState('apiList', nextData);
-    addToast(intlObj.get(message['store.success.editBody']), 'success');
-  };
-
-  const firstRow = {
-    method: 'notApi',
-    path: 'notApi',
-    type: 'input',
-    expandable: false,
-  };
-
-  const tableData = useMemo(
-    () =>
-      produce(apiList, (draft) => {
-        draft.map((value, index) => {
-          if (
-            editingApiList.some((item) => item.id === value.method + value.path)
-          ) {
-            value.expandable = false;
+  /** [CHANGED] 각 테이블(컬럼)에서 공통으로 쓰는 columns */
+  const makeColumns = (colIndex) => {
+    return [
+      {
+        title: 'IP',
+        dataIndex: 'value',
+        key: 'value',
+        ellipsis: true,
+        width: 'auto',
+        resize: true,
+        render: (_, record) => {
+          // input row
+          if (record.type === 'input') {
+            return (
+              <Division flex={true} gap={10} alignItems={'center'}>
+                <Input
+                  value={inputByColumn[colIndex]}
+                  placeholder={'예: 10.0.0.1 또는 10.0.0.1~10.0.0.10'}
+                  onChange={(e) => handleChangeInput(colIndex, e.target.value)}
+                  maxLength={40}
+                  showCount={true}
+                />
+              </Division>
+            );
           }
-          const requestBody = apiList[index].info?.requestBody || {};
-          const bodyContent = requestBody?.content || {};
-          const requestBodyType = Object.keys(bodyContent)[0];
-          const schema = bodyContent[requestBodyType]?.schema || {};
-          value.expandedArea = (
-            <Fragment key={index.toString()}>
-              <FormRow>
-                <FormCol>
-                  <FormCol.Strong>Data</FormCol.Strong>
-                </FormCol>
-              </FormRow>
-              <ParameterForm
-                info={apiList[index].info}
-                onAdd={(newData) =>
-                  handleAddParameter(
-                    apiList[index].path,
-                    apiList[index].method,
-                    newData,
-                  )
-                }
-              />
-              <ParameterList
-                info={apiList[index].info}
-                onSave={(_in, name, updatedData) =>
-                  handleSaveParameter(
-                    apiList[index].path,
-                    apiList[index].method,
-                    _in,
-                    name,
-                    updatedData,
-                  )
-                }
-                onDelete={(_in, name) =>
-                  handleDeleteParameter(
-                    apiList[index].path,
-                    apiList[index].method,
-                    _in,
-                    name,
-                  )
-                }
-              />
-              {apiList[index].method !== 'get' && (
-                <>
-                  <FormRow>
-                    <FormCol>
-                      {requestBodyType === undefined ? (
-                        <FormCol.Strong>Body</FormCol.Strong>
-                      ) : (
-                        <Dropdown
-                          title={
-                            <FormCol.Strong>
-                              Body{` (${requestBodyType})`}
-                            </FormCol.Strong>
-                          }
-                          items={[
-                            {
-                              key: 'application/json',
-                              value: 'application/json',
-                              label: 'application/json',
-                              onClick: (item) => {
-                                if (requestBodyType !== item.key) {
-                                  handleUpdateRequestBodyType(
-                                    apiList[index].path,
-                                    apiList[index].method,
-                                    item.key,
-                                  );
-                                }
-                              },
-                            },
-                            {
-                              key: 'multipart/form-data',
-                              value: 'multipart/form-data',
-                              label: 'multipart/form-data',
-                              onClick: (item) => {
-                                if (requestBodyType !== item.key) {
-                                  handleUpdateRequestBodyType(
-                                    apiList[index].path,
-                                    apiList[index].method,
-                                    item.key,
-                                  );
-                                }
-                              },
-                            },
-                          ]}
-                        />
-                      )}
-                    </FormCol>
-                  </FormRow>
-                  {requestBodyType !== undefined ? (
-                    <BodyForm
-                      requestBodyType={requestBodyType}
-                      schema={schema}
-                      onSave={(updatedData) =>
-                        handleUpdateBody(
-                          apiList[index].path,
-                          apiList[index].method,
-                          updatedData,
-                        )
-                      }
-                      onDelete={() =>
-                        handleDeleteBody(
-                          apiList[index].path,
-                          apiList[index].method,
-                        )
-                      }
-                    />
-                  ) : (
-                    <FormRow>
-                      <FormCol>
-                        <Buttons.Outlined
-                          type={'grey'}
-                          onClick={() =>
-                            handleAddBody(
-                              apiList[index].path,
-                              apiList[index].method,
-                            )
-                          }
-                        >
-                          {intlObj.get(message['store.add'])}
-                        </Buttons.Outlined>
-                      </FormCol>
-                    </FormRow>
-                  )}
-                </>
-              )}
-            </Fragment>
-          );
-        });
-        draft.splice(0, 0, firstRow);
-      }),
-    [apiRegistForm, apiList, editingApiList, intlObj, message],
-  );
 
-  const tableColumns = [
-    {
-      title: 'Path',
-      dataIndex: 'path',
-      key: 'path',
-      ellipsis: true,
-      width: 'auto',
-      resize: true,
-      render: (text, record) => {
-        const id = record.id;
-        const editingItem = editingApiList.find((item) => item.id === id);
-        return record.type === 'input' ? (
-          <Division flex={true} gap={10}>
-            <Select
-              value={apiRegistForm.method}
-              options={methodOptions}
-              onSelect={(_, value) =>
-                handleUpdateApiRegistForm('method', value.value)
-              }
-            />
-            <Input
-              value={apiRegistForm.path}
-              placeholder={intlObj.get(message['store.placeholder.input.path'])}
-              onChange={(e) =>
-                handleUpdateApiRegistForm('path', e.target.value)
-              }
-              maxLength={100}
-              showCount={true}
-            />
-          </Division>
-        ) : editingItem !== undefined ? (
-          <Division flex={true} gap={10}>
-            <Select
-              value={editingItem.data.method}
-              options={methodOptions}
-              onSelect={(_, value) =>
-                handleUpdatedEditingApiItem(id, 'method', value.value)
-              }
-            />
-            <Input
-              value={editingItem.data.path}
-              placeholder={intlObj.get(message['store.placeholder.input.path'])}
-              onChange={(e) =>
-                handleUpdatedEditingApiItem(id, 'path', e.target.value)
-              }
-              maxLength={100}
-              showCount={true}
-            />
-          </Division>
-        ) : (
-          <Division flex={true} gap={10} alignItems={'center'}>
-            <Method method={record.method} />
-            <Ellipsis>{text}</Ellipsis>
-          </Division>
-        );
+          // editing row
+          if (editing?.id === record.id) {
+            return (
+              <Division flex={true} gap={10} alignItems={'center'}>
+                <Input
+                  value={editing.value}
+                  placeholder={'예: 10.0.0.1 또는 10.0.0.1~10.0.0.10'}
+                  onChange={(e) =>
+                    setEditing((prev) => ({ ...prev, value: e.target.value }))
+                  }
+                  maxLength={40}
+                  showCount={true}
+                />
+              </Division>
+            );
+          }
+
+          return (
+            <Division flex={true} gap={10} alignItems={'center'}>
+              <Ellipsis>{record.value}</Ellipsis>
+            </Division>
+          );
+        },
+        onCell: () => ({
+          style: { paddingLeft: 0 },
+        }),
       },
-      onCell: (record) => ({
-        colSpan: record?.expandable === false ? 2 : 1,
-        style:
-          record?.expandable === false
-            ? {}
-            : {
-                paddingLeft: 0,
-              },
-      }),
-    },
-    {
-      title: intlObj.get(message['store.settingQos']),
-      key: 'qos',
-      ellipsis: true,
-      align: 'center',
-      width: '30%',
-      resize: true,
-      render: (text, record, index) => {
-        const id = record.id;
-        const editingItem = editingApiList.find((item) => item.id === id);
-        return record.type === 'input' ? (
-          <QosForm
-            list={apiRegistForm.qosList}
-            serviceType={serviceType}
-            onChange={(updatedData) =>
-              handleUpdateApiRegistForm('qosList', updatedData)
-            }
-          />
-        ) : editingItem !== undefined ? (
-          <QosForm
-            list={editingItem.data.qosList}
-            serviceType={serviceType}
-            onChange={(updatedData) =>
-              handleUpdatedEditingApiItem(id, 'qosList', updatedData)
-            }
-          />
-        ) : (
-          <QosForm
-            list={record.qosList}
-            serviceType={serviceType}
-            readOnly={true}
-          />
-        );
+      {
+        title: intlObj.get(message['store.manage']),
+        dataIndex: 'manage',
+        key: 'manage',
+        ellipsis: true,
+        align: 'center',
+        width: '110px',
+        resize: true,
+        render: (_, record) => {
+          // input row: add button
+          if (record.type === 'input') {
+            return (
+              <Buttons.Outlined
+                type={'grey'}
+                onClick={() => handleAddIp(colIndex)}
+              >
+                {intlObj.get(message['store.add'])}
+              </Buttons.Outlined>
+            );
+          }
+
+          // editing row: save/cancel
+          if (editing?.id === record.id) {
+            return (
+              <Division flex={true} gap={4} justifyContent={'center'}>
+                <Buttons.IconSave
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSaveEdit();
+                  }}
+                />
+                <Buttons.IconCancel
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCancelEdit();
+                  }}
+                />
+              </Division>
+            );
+          }
+
+          // normal row: edit/delete
+          return (
+            <Division flex={true} gap={4} justifyContent={'center'}>
+              <Buttons.IconEdit
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleStartEdit(record);
+                }}
+              />
+              <Buttons.IconDeleteRed
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteConfirm({ open: true, targetId: record.id });
+                }}
+              />
+            </Division>
+          );
+        },
+        onCell: () => ({
+          onClick: (e) => e.stopPropagation(),
+        }),
       },
-    },
-    {
-      title: intlObj.get(message['store.showY']),
-      dataIndex: 'showYn',
-      key: 'showYn',
-      ellipsis: true,
-      align: 'center',
-      width: '12%',
-      resize: true,
-      render: (text, record, index) => {
-        const id = record.id;
-        const editingItem = editingApiList.find((item) => item.id === id);
-        return record.type === 'input' ? (
-          <Select
-            value={apiRegistForm.showYn}
-            options={showYnOptions}
-            onSelect={(_, value) =>
-              handleUpdateApiRegistForm('showYn', value.value)
-            }
-          />
-        ) : editingItem !== undefined ? (
-          <Select
-            value={editingItem.data.showYn}
-            options={showYnOptions}
-            onSelect={(_, value) =>
-              handleUpdatedEditingApiItem(id, 'showYn', value.value)
-            }
-          />
-        ) : record.showYn === 'Y' ? (
-          intlObj.get(message['store.showY'])
-        ) : (
-          intlObj.get(message['store.showN'])
-        );
-      },
-    },
-    {
-      title: intlObj.get(message['store.manage']),
-      dataIndex: 'manage',
-      key: 'manage',
-      ellipsis: true,
-      align: 'center',
-      width: '11%',
-      resize: true,
-      render: (text, record, index) => {
-        const id = record.id;
-        return record.type === 'input' ? (
-          <Buttons.Outlined type={'grey'} onClick={handleAddApi}>
-            {intlObj.get(message['store.add'])}
-          </Buttons.Outlined>
-        ) : editingApiList.some((item) => item.id === id) ? (
-          <Division flex={true} gap={4} justifyContent={'center'}>
-            <Buttons.IconSave
-              onClick={(e) => {
-                e.stopPropagation();
-                handleSaveEditApi(record.id);
-              }}
-            />
-            <Buttons.IconCancel
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCancelEditApi(record.id);
-              }}
-            />
-          </Division>
-        ) : (
-          <Division flex={true} gap={4} justifyContent={'center'}>
-            <Buttons.IconEdit
-              onClick={(e) => {
-                e.stopPropagation();
-                handleEditApi(record);
-              }}
-            />
-            <Buttons.IconDeleteRed
-              onClick={(e) => {
-                e.stopPropagation();
-                setDeleteConfirm({
-                  open: true,
-                  targetId: record.id,
-                });
-              }}
-            />
-          </Division>
-        );
-      },
-    },
-  ];
+    ];
+  };
 
   return (
     <>
-      <CollapseTable
-        rowKey={(record) => record.method + record.path}
-        columns={tableColumns}
-        data={tableData}
-        pagination={{
-          position: ['bottomCenter'],
-          showAllItems: true,
-          pageSize: pageSize,
-        }}
-        paginationExtraContent={
-          <Select
-            value={pageSize}
-            options={pageSizeOptions}
-            onSelect={(_, value) => setPageSize(value.value)}
-          />
-        }
-      />
+      {/* [CHANGED] 3단(가로 3개 테이블) */}
+      <Division flex={true} gap={12} alignItems={'flex-start'}>
+        {[0, 1, 2].map((colIndex) => (
+          <div key={colIndex} style={{ width: 'calc(33.333% - 8px)' }}>
+            <CollapseTable
+              // [CHANGED] 각 컬럼별 rowKey 안정화
+              rowKey={(record) => record.id}
+              columns={makeColumns(colIndex)}
+              data={tableDataByColumn[colIndex]}
+              // [CHANGED] 각 단은 "간단 리스트"가 목적이라 pagination은 끔 (3단에서 pagination하면 UX/성능 둘 다 애매)
+              // 만약 꼭 필요하면 전체 ipList 기준으로 상단 1개 pagination을 따로 두는 걸 추천
+              pagination={false}
+            />
+          </div>
+        ))}
+      </Division>
+
       <Confirm
         open={deleteConfirm?.open}
         title={intlObj.get(message['store.deleteApi'])}
@@ -739,7 +395,7 @@ const IpList = () => {
         okText={intlObj.get(message['store.ok'])}
         cancelText={intlObj.get(message['store.cancel'])}
         onOk={() => {
-          handleDeleteApi(deleteConfirm?.targetId);
+          handleDelete(deleteConfirm?.targetId);
           setDeleteConfirm(defaultDeleteConfirm);
         }}
         onCancel={() => setDeleteConfirm(defaultDeleteConfirm)}
