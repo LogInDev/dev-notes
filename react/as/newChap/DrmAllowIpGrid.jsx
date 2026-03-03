@@ -3,28 +3,26 @@ import { useMemo, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import styled from 'styled-components';
 
-import { useToast } from '@/utils/ToastProvider';
-import { intlObj } from '@/utils/commonUtils';
-import message from '@/language/message';
-
 import Division from '@/components/Atoms/Division';
 import Buttons from '@/components/Atoms/Buttons';
 import ContentHeader from '@/components/Organisms/ContentHeader';
+import Input from '@/components/Atoms/Input';
+
+import { useToast } from '@/utils/ToastProvider';
+import { isValidIpOrCidr, normalizeIpOrCidr } from '@/utils/ipCidrUtils';
 
 import {
   upsertDrmAllowIp,
   deleteDrmAllowIp,
-  updateField,
 } from '@/store/reduxStore/detail/reducer';
-
-import { isValidIpOrCidr, normalizeIpOrCidr } from '@/utils/ipCidrUtils';
 
 const COLS = 4;
 
+// ✅ 가로 순서대로 4단 분배
 const splitToColumns = (list) => {
   const cols = Array.from({ length: COLS }, () => []);
   for (let i = 0; i < list.length; i += 1) {
-    cols[i % COLS].push(list[i]); // ✅ 가로 순서대로 분배
+    cols[i % COLS].push(list[i]);
   }
   return cols;
 };
@@ -42,9 +40,9 @@ const DrmAllowIpGrid = ({ svcId, disabled }) => {
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState('');
 
-  const columns = useMemo(() => splitToColumns(allowIpList), [allowIpList]);
-
   const isBusy = upsertLoading || deleteLoading;
+
+  const columns = useMemo(() => splitToColumns(allowIpList), [allowIpList]);
 
   const resetEdit = () => {
     setEditingId(null);
@@ -60,28 +58,20 @@ const DrmAllowIpGrid = ({ svcId, disabled }) => {
       return;
     }
 
-    // ✅ 중복 체크(프론트 선제 차단 + 서버에서도 다시 검증 권장)
     const duplicated = allowIpList.some((x) => (x?.ipCidr || '').trim() === v);
     if (duplicated) {
       addToast('이미 등록된 허용 IP 입니다.', 'warning');
       return;
     }
 
-    dispatch(
-      upsertDrmAllowIp({
-        svcId,
-        allowIpId: null, // ✅ add
-        ipCidr: v,
-      }),
-    );
-
+    dispatch(upsertDrmAllowIp({ svcId, allowIpId: null, ipCidr: v }));
     setInputValue('');
   }, [inputValue, allowIpList, svcId, dispatch, addToast]);
 
-  const handleStartEdit = useCallback((row) => {
+  const handleStartEdit = (row) => {
     setEditingId(row.id);
     setEditingValue(row.ipCidr);
-  }, []);
+  };
 
   const handleSaveEdit = useCallback(() => {
     const v = normalizeIpOrCidr(editingValue);
@@ -92,62 +82,55 @@ const DrmAllowIpGrid = ({ svcId, disabled }) => {
       return;
     }
 
-    // ✅ 수정 시 중복 체크 (본인 제외)
-    const duplicated = allowIpList.some((x) => x.id !== editingId && (x?.ipCidr || '').trim() === v);
+    const duplicated = allowIpList.some(
+      (x) => x.id !== editingId && (x?.ipCidr || '').trim() === v,
+    );
     if (duplicated) {
       addToast('이미 등록된 허용 IP 입니다.', 'warning');
       return;
     }
 
-    dispatch(
-      upsertDrmAllowIp({
-        svcId,
-        allowIpId: editingId, // ✅ update
-        ipCidr: v,
-      }),
-    );
-
+    dispatch(upsertDrmAllowIp({ svcId, allowIpId: editingId, ipCidr: v }));
     resetEdit();
   }, [editingId, editingValue, allowIpList, svcId, dispatch, addToast]);
 
-  const handleDelete = useCallback(
-    (row) => {
-      dispatch(
-        deleteDrmAllowIp({
-          svcId,
-          allowIpId: row.id,
-        }),
-      );
-      if (editingId === row.id) resetEdit();
-    },
-    [svcId, dispatch, editingId],
-  );
+  const handleDelete = (row) => {
+    dispatch(deleteDrmAllowIp({ svcId, allowIpId: row.id }));
+    if (editingId === row.id) resetEdit();
+  };
 
   return (
     <Wrapper>
-      {/* ✅ Root Key / 시스템 환경 설정 모양 유지: ContentHeader + Division 톤 그대로 */}
-      <ContentHeader $border={true} title="허용 IP" spacing={20} />
+      <ContentHeader title="허용 IP 관리" $border={true} spacing={20} />
 
-      {/* ✅ 4단 위에 Input + 추가 버튼 1개 */}
-      <Division flex={true} gap={10} alignItems={'center'} mb={16}>
-        <InputLike
+      {/* ✅ 요구사항: 테이블 위에 Input + '추가' 버튼 1개 */}
+      <Division flex={true} gap={10} alignItems={'center'}>
+        <Input
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
-          placeholder="예: 10.0.0.1 또는 10.0.0.1/25"
+          placeholder="허용 IP를 입력하세요. (예: 10.0.0.0/25)"
+          maxLength={100}
+          maxWidth={350}
           disabled={disabled || isBusy}
         />
-        <Buttons.Basic
-          type={'primary'}
+        <Buttons.Outlined
+          type={'grey'}
           onClick={handleAdd}
+          minWidth="80"
           disabled={disabled || isBusy || !inputValue.trim()}
         >
           추가
-        </Buttons.Basic>
+        </Buttons.Outlined>
       </Division>
 
+      <Hint>
+        단일 IP 또는 CIDR만 허용됩니다. (예: <b>10.0.0.1</b>, <b>10.0.0.0/25</b>)
+      </Hint>
+
+      {/* ✅ 요구사항: 4단 가로 배치, 헤더 없음, 바로 row만 */}
       <Grid>
-        {columns.map((col, colIndex) => (
-          <Column key={`col-${colIndex}`}>
+        {columns.map((col, idx) => (
+          <Column key={`col-${idx}`}>
             {col.map((row) => {
               const isEditing = editingId === row.id;
               return (
@@ -207,10 +190,6 @@ const DrmAllowIpGrid = ({ svcId, disabled }) => {
           </Column>
         ))}
       </Grid>
-
-      <Hint>
-        단일 IP 또는 CIDR만 허용됩니다. (예: <b>10.0.0.1</b>, <b>10.0.0.1/25</b>)
-      </Hint>
     </Wrapper>
   );
 };
@@ -221,7 +200,15 @@ export default DrmAllowIpGrid;
 
 const Wrapper = styled.div`
   .${({ theme }) => theme.namespace} & {
-    width: 100%;
+    margin-top: 10px;
+  }
+`;
+
+const Hint = styled.div`
+  .${({ theme }) => theme.namespace} & {
+    margin: 8px 0 12px 0;
+    font-size: 12px;
+    opacity: 0.85;
   }
 `;
 
@@ -229,7 +216,8 @@ const Grid = styled.div`
   .${({ theme }) => theme.namespace} & {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 16px;
+    gap: 14px;
+    margin-top: 10px;
   }
 `;
 
@@ -260,23 +248,6 @@ const IpCell = styled.div`
   }
 `;
 
-const BtnCell = styled.div`
-  .${({ theme }) => theme.namespace} & {
-    width: 60px;
-    display: flex;
-    justify-content: flex-end;
-  }
-`;
-
-const BtnGroup = styled.div`
-  .${({ theme }) => theme.namespace} & {
-    display: flex;
-    gap: 6px;
-    justify-content: flex-end;
-    align-items: center;
-  }
-`;
-
 const IpText = styled.div`
   .${({ theme }) => theme.namespace} & {
     font-size: 13px;
@@ -284,20 +255,6 @@ const IpText = styled.div`
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-`;
-
-// 프로젝트에 Input 컴포넌트가 있긴 하지만(Atoms/Input),
-// DRM UI는 ApiDetail쪽에서 이미 input 인라인 스타일 쓰는 흐름이 있어서,
-// 여기서는 성능/의존성 줄이려고 "가벼운 input"으로 통일 (원하면 Input으로 바꿔도 됨)
-const InputLike = styled.input`
-  .${({ theme }) => theme.namespace} & {
-    flex: 1;
-    height: 36px;
-    border-radius: 10px;
-    border: 1px solid #ddd;
-    padding: 0 12px;
-    outline: none;
   }
 `;
 
@@ -312,10 +269,18 @@ const EditInput = styled.input`
   }
 `;
 
-const Hint = styled.div`
+const BtnCell = styled.div`
   .${({ theme }) => theme.namespace} & {
-    margin-top: 12px;
-    font-size: 12px;
-    opacity: 0.85;
+    width: 60px;
+    display: flex;
+    justify-content: flex-end;
+  }
+`;
+
+const BtnGroup = styled.div`
+  .${({ theme }) => theme.namespace} & {
+    display: flex;
+    gap: 6px;
+    align-items: center;
   }
 `;
