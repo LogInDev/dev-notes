@@ -1,25 +1,40 @@
 // src/utils/ipCidrUtils.js
 
-const IPV4_REGEX =
-  /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+// utils/ipUtils.js
 
-export const isValidIpv4 = (ip) => IPV4_REGEX.test((ip || '').trim());
+// IPv4(0~255) 정밀 검증
+export const isValidIPv4 = (value) => {
+  const v = (value || '').trim();
+  const parts = v.split('.');
+  if (parts.length !== 4) return false;
 
-export const isValidCidr = (cidr) => {
-  const v = (cidr || '').trim();
-  const [ip, prefix] = v.split('/');
-  if (!ip || prefix === undefined) return false;
-  if (!isValidIpv4(ip)) return false;
-
-  const p = Number(prefix);
-  return Number.isInteger(p) && p >= 0 && p <= 32;
+  for (const p of parts) {
+    if (p === '' || !/^\d+$/.test(p)) return false;
+    const n = Number(p);
+    if (n < 0 || n > 255) return false;
+    // 001 같은 것도 허용할지 정책에 따라 다름. 실무에서 보통 허용.
+  }
+  return true;
 };
 
-// 요구사항: 단일 IP 또는 CIDR만 허용 (~ 대역 미사용)
+// CIDR 검증: "x.x.x.x/0~32"
+export const isValidIPv4Cidr = (value) => {
+  const v = (value || '').trim();
+  const [ip, mask] = v.split('/');
+  if (!ip || mask === undefined) return false;
+  if (!isValidIPv4(ip)) return false;
+  if (!/^\d+$/.test(mask)) return false;
+  const m = Number(mask);
+  return m >= 0 && m <= 32;
+};
+
+// 단일 IP 또는 CIDR 허용
 export const isValidIpOrCidr = (value) => {
   const v = (value || '').trim();
   if (!v) return false;
-  return isValidIpv4(v) || isValidCidr(v);
+  if (v.includes('/')) return isValidIPv4Cidr(v);
+  return isValidIPv4(v);
 };
 
+// 표준화(대문자화 같은 건 필요 없고, 공백 제거 정도)
 export const normalizeIpOrCidr = (value) => (value || '').trim();
