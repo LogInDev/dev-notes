@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import ContentHeader from "@/components/Organisms/ContentHeader";
 import Division from "@/components/Atoms/Division";
@@ -15,54 +15,56 @@ const DrmRootKeySection = ({ svcId }) => {
   const dispatch = useDispatch();
   const { addToast } = useToast();
 
-  const detailState = useSelector((state) => state.get("detail"))?.detail || {};
-  const serviceDetail = detailState?.serviceDetail || {};
-  const rootKey = serviceDetail?.rootKey || "";
+  const serviceDetail =
+    useSelector((state) => state.get("detail"))?.detail?.serviceDetail || {};
+  const rootKey = serviceDetail?.rootKey;
 
-  const drmRootKeyState = useSelector((state) => state.get("detail"))?.drmRootKey || {};
-  const updating = drmRootKeyState?.updating || false;
-  const updateSuccess = drmRootKeyState?.updateSuccess || false;
-  const updateError = drmRootKeyState?.updateError;
+  const drmRootKeyState =
+    useSelector((state) => state.get("detail"))?.drmRootKey || {};
+  const updateLoading = drmRootKeyState?.updateLoading || false;
+  const success = drmRootKeyState?.success || false;
+  const error = drmRootKeyState?.error;
 
   const [isEditing, setIsEditing] = useState(false);
-  const [draft, setDraft] = useState("");
+  const [value, setValue] = useState("");
 
   useEffect(() => {
-    if (isEditing) setDraft(rootKey);
-  }, [isEditing, rootKey]);
-
-  // ✅ toast는 컴포넌트에서만
-  useEffect(() => {
-    if (updateSuccess) {
+    if (success) {
       addToast("Root Key가 수정되었습니다.", "success");
       dispatch(resetDrmRootKeyResult());
       setIsEditing(false);
     }
-    if (updateError) {
+    if (error) {
       addToast("Root Key 수정 중 오류가 발생했습니다.", "error");
       dispatch(resetDrmRootKeyResult());
     }
-  }, [updateSuccess, updateError]);
+  }, [success, error]);
 
-  const canSave = useMemo(() => {
-    const v = (draft || "").trim();
-    return v.length > 0 && v !== (rootKey || "").trim();
-  }, [draft, rootKey]);
-
-  const onCopy = useCallback(async () => {
-    if (!rootKey) return;
+  const onCopy = async () => {
     try {
+      if (!rootKey) return addToast("Root Key 정보가 없습니다.", "warning");
       await navigator.clipboard.writeText(rootKey);
-      addToast("Root Key를 복사했습니다.", "success");
+      addToast("Root Key가 복사되었습니다.", "success");
     } catch {
-      addToast("Root Key 복사에 실패했습니다.", "error");
+      addToast("복사에 실패했습니다.", "error");
     }
-  }, [rootKey]);
+  };
 
-  const onSave = useCallback(() => {
-    if (!canSave) return;
-    dispatch(updateDrmRootKey({ svcId, rootKey: draft.trim() }));
-  }, [canSave, draft, svcId]);
+  const onStartEdit = () => {
+    setValue(rootKey || "");
+    setIsEditing(true);
+  };
+
+  const onCancel = () => {
+    setIsEditing(false);
+    setValue("");
+  };
+
+  const onSave = () => {
+    const v = (value || "").trim();
+    if (!v) return addToast("Root Key를 입력해 주세요.", "warning");
+    dispatch(updateDrmRootKey({ svcId, rootKey: v }));
+  };
 
   return (
     <div>
@@ -72,10 +74,9 @@ const DrmRootKeySection = ({ svcId }) => {
         <div style={{ flex: 1, minWidth: 0 }}>
           {isEditing ? (
             <Input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Root Key 입력"
-              maxLength={300}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              maxLength={200}
             />
           ) : (
             <div style={{ wordBreak: "break-all", opacity: 0.9 }}>
@@ -85,40 +86,23 @@ const DrmRootKeySection = ({ svcId }) => {
         </div>
 
         {!isEditing ? (
-          <>
+          <Division flex={true} gap={6} alignItems={"center"}>
             <Buttons.Outlined type={"grey"} onClick={onCopy} minWidth="80">
               복사
             </Buttons.Outlined>
-            <Buttons.Outlined
-              type={"grey"}
-              onClick={() => setIsEditing(true)}
-              minWidth="80"
-            >
+            <Buttons.Outlined type={"grey"} onClick={onStartEdit} minWidth="80">
               수정
             </Buttons.Outlined>
-          </>
+          </Division>
         ) : (
-          <>
-            <Buttons.Outlined
-              type={"grey"}
-              onClick={() => {
-                setIsEditing(false);
-                setDraft(rootKey);
-              }}
-              minWidth="80"
-              disabled={updating}
-            >
-              취소
-            </Buttons.Outlined>
-            <Buttons.Outlined
-              type={"grey"}
-              onClick={onSave}
-              minWidth="80"
-              disabled={!canSave || updating}
-            >
+          <Division flex={true} gap={6} alignItems={"center"}>
+            <Buttons.Outlined type={"grey"} onClick={onSave} minWidth="80" disabled={updateLoading}>
               저장
             </Buttons.Outlined>
-          </>
+            <Buttons.Outlined type={"grey"} onClick={onCancel} minWidth="80" disabled={updateLoading}>
+              취소
+            </Buttons.Outlined>
+          </Division>
         )}
       </Division>
 
