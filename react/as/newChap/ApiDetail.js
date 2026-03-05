@@ -1,4 +1,4 @@
-// pages/Api/Detail/ApiDetail.
+// pages/Api/Detail/ApiDetail.js
 import {
   useContext,
   useRef,
@@ -28,9 +28,8 @@ import {
   requestSubscribe,
   requestSubscriptionPermission,
   reserveDeleteService,
-
-  // [CHANGED]
-  updateRootKey,
+  // ✅ 추가 필요: rootKey 수정 액션
+  updateDrmRootKey,
 } from '@/store/reduxStore/detail/reducer';
 import { updateOpenPopup } from '@/store/reduxStore/myRegist/reducer';
 import { BasenameContext } from '@/utils/Context';
@@ -54,7 +53,9 @@ import History from './history';
 import MyRegistPopup from '../MyRegist/popup';
 import ContentHeader from '@/components/Organisms/ContentHeader';
 import Input from '@/components/Atoms/Input';
-import IpList from './detail/ipList';
+
+// ✅ 허용 IP 그리드(재사용 컴포넌트)
+import DrmAllowIpGrid from './detail/DrmAllowIpGrid';
 
 /* 퀵메뉴 아이콘 모음 */
 import basicIcon from '@/assets/images/quickmenu/icon_quickmenu_bagic_off.svg';
@@ -93,6 +94,12 @@ const DRM_STATUS = {
 
 const isValidDrmEmpNoFormat = (value) => /^X99\d+$/i.test(value?.trim());
 
+const isSysKeyType = (key) => {
+  const raw = (key?.type || key?.keyType || key?.keyTp || '').toString();
+  const v = raw.trim().toUpperCase();
+  return v === 'SYS' || v === 'SYSTEM';
+};
+
 const ApiDetail = () => {
   const { addToast } = useToast();
 
@@ -112,12 +119,6 @@ const ApiDetail = () => {
   const selectedKey = useMemo(
     () => keyList.find((key) => key.keyId === selectedKeyId),
     [keyList, selectedKeyId],
-  );
-
-  // [CHANGED] SYS 키 여부
-  const isSysKeySelected = useMemo(
-    () => selectedKey?.authCd === 'SYS',
-    [selectedKey],
   );
 
   // CP 관리자 여부
@@ -141,10 +142,6 @@ const ApiDetail = () => {
     reserveDeleteServiceSuccess = false,
     cancelDeleteReserveLoading = false,
     cancelDeleteReserveSuccess = false,
-
-    // [CHANGED] RootKey update 상태
-    updateRootKeyLoading = false,
-    updateRootKeySuccess = false,
   } = detailPageState;
 
   // fetch 로딩 관련 상태
@@ -157,9 +154,9 @@ const ApiDetail = () => {
   const fetchManagerListLoading =
     detailPageState?.manager?.fetchManagerListLoading || false;
   const fetchHistoryLoading =
-    detailPageState?.history?.fetchHistoryLoading || false;
+    detailPageState?.history?.fetchHistoryListLoading || false;
 
-  // fetch 성공 관련 상태 (첫 로드 시점을 구분하기 위한 값)
+  // fetch 성공 관련 상태
   const fetchServiceDetailSuccess =
     detailPageState?.detail?.fetchServiceDetailSuccess || false;
 
@@ -168,29 +165,24 @@ const ApiDetail = () => {
     requestSubscribeLoading ||
     cancelSubscribeLoading ||
     reserveDeleteServiceLoading ||
-    cancelDeleteReserveLoading ||
-    updateRootKeyLoading; // [CHANGED]
+    cancelDeleteReserveLoading;
 
   const requestSuccess =
     requestSubscriptionPermissionSuccess ||
     requestSubscribeSuccess ||
     cancelSubscribeSuccess ||
-    cancelDeleteReserveSuccess ||
-    updateRootKeySuccess; // [CHANGED]
+    cancelDeleteReserveSuccess;
 
-  const fetchLoading =
-    fetchPermissionLoading ||
-    fetchServiceDetailLoading ||
-    fetchApiListLoading ||
-    fetchManagerListLoading ||
-    fetchHistoryLoading;
+  // ✅ 주의: 페이지 전체 fetchLoading으로 Spin 걸면 백엔드 미구현/실패 시 무한스핀 가능
+  // const fetchLoading = fetchPermissionLoading || fetchServiceDetailLoading || fetchApiListLoading || fetchManagerListLoading || fetchHistoryLoading;
 
   // 기본 정보 관련 상태
   const detailState = detailPageState?.detail || {};
   const serviceDetail = detailState?.serviceDetail || {};
   const isDeleted = serviceDetail?.isDeleted;
 
-  // const isDrm = useMemo(() => serviceDetail?.svcType === "DRM", [serviceDetail]);
+  // ✅ 지금은 강제로 true였는데, 실제로는 svcType 기반으로 가는 게 안전
+  // const isDrm = useMemo(() => serviceDetail?.svcType === 'DRM', [serviceDetail]);
   const isDrm = true;
 
   // API 목록 관련 상태
@@ -217,7 +209,7 @@ const ApiDetail = () => {
   const subscriptionPermission =
     permissionState?.subscriptionPermission || 'NON';
 
-  // 구독 가능 여부 (전체 이용 가능 API 이거나 구독 권한이 있는 경우)
+  // 구독 가능 여부
   const SubscriptionAvailability = useMemo(
     () => serviceDetail?.authCd === 'NON' || subscriptionPermission === 'NOR',
     [serviceDetail, subscriptionPermission],
@@ -247,32 +239,179 @@ const ApiDetail = () => {
     useState(false);
 
   // =========================
-  // DRM 상태
+  // DRM: 시스템 사번 검증
   // =========================
   const [drmEmpNo, setDrmEmpNo] = useState('');
   const [drmStatus, setDrmStatus] = useState(DRM_STATUS.idle);
   const drmCacheRef = useRef(new Map());
   const drmVerifiedEmpNoRef = useRef(null);
+  const drmEmpNoInputRef = useRef(null);
 
-  // [CHANGED] RootKey 편집 상태
-  const [isRootKeyEditing, setIsRootKeyEditing] = useState(false);
+  // ✅ 요구사항: 포커스 되면 검증 무효화(구독신청 버튼 다시 비활성화)
+  const handleDrmEmpNoFocus = useCallback(() => {
+    // SYS 키가 아닌데 포커스하면 토스트 + 블러(입력 못하게)
+    if (!isSysKeyType(selectedKey)) {
+      addToast('시스템키(SYS)를 선택하세요.', 'warning');
+      // 포커스 유지되면 계속 뜰 수 있으니 바로 blur
+      setTimeout(() => {
+        drmEmpNoInputRef.current?.blur?.();
+      }, 0);
+      return;
+    }
+
+    // 포커스 들어오면 “검증 완료 상태” 무효화
+    setDrmStatus(DRM_STATUS.idle);
+    drmVerifiedEmpNoRef.current = null;
+  }, [selectedKey, addToast]);
+
+  const verifyDrmEmpNo = useCallback(async () => {
+    // SYS 키 아니면 검증 자체를 막음
+    if (!isSysKeyType(selectedKey)) {
+      addToast('시스템키(SYS)를 선택하세요.', 'warning');
+      return;
+    }
+
+    const empNoRaw = (drmEmpNo || '').trim();
+    const empNo = empNoRaw.toUpperCase();
+
+    if (!empNoRaw) {
+      addToast('시스템 계정 사번을 입력해 주세요. (예: X99...)', 'warning');
+      return;
+    }
+
+    if (!isValidDrmEmpNoFormat(empNo)) {
+      addToast(
+        '사번 형식이 올바르지 않습니다. X99로 시작하는 사번만 입력해 주세요.',
+        'error',
+      );
+      setDrmStatus(DRM_STATUS.invalid);
+      drmVerifiedEmpNoRef.current = null;
+      return;
+    }
+
+    const cached = drmCacheRef.current.get(empNo);
+    if (cached) {
+      setDrmStatus(cached);
+      drmVerifiedEmpNoRef.current = cached === DRM_STATUS.valid ? empNo : null;
+      return;
+    }
+
+    try {
+      setDrmStatus(DRM_STATUS.checking);
+
+      const res = await axios.get(
+        `${process.env.VITE_REACT_APP_API_STORE_URL}/drm/empNo/verify`,
+        { params: { empNo } },
+      );
+
+      const statusRaw = res?.data?.response?.status || res?.data?.status;
+      const normalized =
+        statusRaw === 'VALID'
+          ? DRM_STATUS.valid
+          : statusRaw === 'DUPLICATED'
+            ? DRM_STATUS.duplicated
+            : DRM_STATUS.invalid;
+
+      drmCacheRef.current.set(empNo, normalized);
+      setDrmStatus(normalized);
+      drmVerifiedEmpNoRef.current = normalized === DRM_STATUS.valid ? empNo : null;
+
+      if (normalized === DRM_STATUS.duplicated) {
+        addToast('이미 등록된 시스템 계정입니다.', 'warning');
+      } else if (normalized === DRM_STATUS.invalid) {
+        addToast('유효하지 않은 시스템 계정입니다.', 'error');
+      } else {
+        addToast('유효한 시스템 계정입니다.', 'success');
+      }
+    } catch (e) {
+      setDrmStatus(DRM_STATUS.idle);
+      drmVerifiedEmpNoRef.current = null;
+      addToast('사번 유효성 확인 중 오류가 발생했습니다.', 'error');
+    }
+  }, [drmEmpNo, addToast, selectedKey]);
+
+  const canRequestSubscribeForDrm = useMemo(() => {
+    if (!isDrm) return true;
+
+    const empNo = (drmEmpNo || '').trim().toUpperCase();
+    return (
+      isSysKeyType(selectedKey) &&
+      drmStatus === DRM_STATUS.valid &&
+      drmVerifiedEmpNoRef.current === empNo
+    );
+  }, [isDrm, drmEmpNo, drmStatus, selectedKey]);
+
+  // =========================
+  // DRM: RootKey 수정/적용
+  // =========================
+  const drmState = detailPageState?.drm || {};
+  const updateRootKeyLoading = drmState?.updateRootKeyLoading || false;
+  const updateRootKeySuccess = drmState?.updateRootKeySuccess || false;
+
+  const [isEditingRootKey, setIsEditingRootKey] = useState(false);
   const [rootKeyDraft, setRootKeyDraft] = useState('');
 
-  const [drmAllowIp, setDrmAllowIp] = useState('');
+  useEffect(() => {
+    // serviceDetail.rootKey 로드되면 draft도 동기화(편집 중에는 건드리지 않음)
+    if (!isEditingRootKey) {
+      setRootKeyDraft(serviceDetail?.rootKey || '');
+    }
+  }, [serviceDetail?.rootKey, isEditingRootKey]);
 
+  useEffect(() => {
+    // 적용 성공하면 편집 종료(서버에서 fetchServiceDetail로 최신 rootKey 받아올 것)
+    if (updateRootKeySuccess) {
+      setIsEditingRootKey(false);
+    }
+  }, [updateRootKeySuccess]);
+
+  const handleClickRootKeyButton = useCallback(() => {
+    if (!isEditingRootKey) {
+      setIsEditingRootKey(true);
+      setRootKeyDraft(serviceDetail?.rootKey || '');
+      return;
+    }
+
+    const nextKey = (rootKeyDraft || '').trim();
+    if (!nextKey) {
+      addToast('Root Key를 입력해 주세요.', 'warning');
+      return;
+    }
+
+    dispatch(
+      updateDrmRootKey({
+        svcId,
+        rootKey: nextKey,
+        addToast,
+        toastSuccess: 'Root Key가 수정되었습니다.',
+        toastError: 'Root Key 수정에 실패했습니다.',
+      }),
+    );
+  }, [
+    isEditingRootKey,
+    rootKeyDraft,
+    serviceDetail?.rootKey,
+    dispatch,
+    svcId,
+    addToast,
+  ]);
+
+  // =========================
+  // 기본 useEffect들
+  // =========================
   useEffect(() => {
     dispatch(increaseViewCount(svcId));
     return () => {
       dispatch(initState());
     };
-  }, []);
+  }, [dispatch, svcId]);
 
   useEffect(() => {
     if (
       fetchIsAdminSuccess &&
       fetchServiceDetailSuccess &&
       fetchHasPermissionLoading === false
-    )
+    ) {
       if (serviceDetail?.showYn === 'N' && !isAdmin && !hasPermission) {
         addToast(
           intlObj.get(message['store.warning.isShowNService']),
@@ -282,6 +421,7 @@ const ApiDetail = () => {
       } else {
         setIsAuthorized(true);
       }
+    }
   }, [
     serviceDetail,
     fetchIsAdminSuccess,
@@ -289,11 +429,9 @@ const ApiDetail = () => {
     fetchHasPermissionLoading,
     isAdmin,
     hasPermission,
-    intlObj,
-    message,
+    addToast,
   ]);
 
-  // 요청 성공 시 데이터 새로고침
   useEffect(() => {
     if (requestSuccess || popupSaveSuccess) {
       dispatch(initState());
@@ -305,26 +443,34 @@ const ApiDetail = () => {
         fetchSubscriptionPermission({ svcId, keyId: selectedKey?.keyId }),
       );
     }
-  }, [requestSuccess, popupSaveSuccess]);
+  }, [
+    requestSuccess,
+    popupSaveSuccess,
+    dispatch,
+    svcId,
+    selectedKey?.keyId,
+    hasPermission,
+    isAdmin,
+  ]);
 
-  // 삭제 성공 시 목록 페이지로 이동
   useEffect(() => {
     if (reserveDeleteServiceSuccess) {
       navigateToList();
     }
   }, [reserveDeleteServiceSuccess]);
 
-  // 구독 권한 정보 조회
   useEffect(() => {
     if (fetchKeySuccess)
       dispatch(
         fetchSubscriptionPermission({ svcId, keyId: selectedKey?.keyId }),
       );
-  }, [svcId, selectedKey, fetchKeySuccess]);
+  }, [svcId, selectedKey?.keyId, fetchKeySuccess, dispatch]);
 
   // 스크롤링 핸들링
   const handleScroll = () => {
-    const scrollEl = scrollRef.current.view;
+    const scrollEl = scrollRef.current?.view;
+    if (!scrollEl) return;
+
     const scrollTop = scrollEl.scrollTop;
     const clientHeight = scrollEl.clientHeight;
     const scrollHeight = scrollEl.scrollHeight;
@@ -344,6 +490,7 @@ const ApiDetail = () => {
     setActiveMenuIndex(topIndex);
   };
 
+  // 페이지 이동 핸들링
   const handleNavigate = (url) => {
     navigate(`${getRoutePath(basename, url)}`);
   };
@@ -369,157 +516,6 @@ const ApiDetail = () => {
     setConfirm(defaultConfirm);
   };
 
-  // =========================
-  // [CHANGED] DRM 사번 Input focus 핸들링
-  // - SYS 키가 아니면 토스트 + blur
-  // - 포커스 시 검증 무효화(구독버튼 비활성화)
-  // =========================
-  const handleFocusDrmEmpNo = useCallback(
-    (e) => {
-      // 포커스만 와도 “재검증 필요”로 만든다 (요구사항 2)
-      setDrmStatus(DRM_STATUS.idle);
-      drmVerifiedEmpNoRef.current = null;
-
-      // SYS 키가 아니면 입력 차단 (요구사항 3)
-      if (!isSysKeySelected) {
-        addToast('시스템키를 선택하세요.', 'warning');
-        // 포커스 강제 해제
-        setTimeout(() => {
-          try {
-            e?.target?.blur?.();
-          } catch {}
-        }, 0);
-      }
-    },
-    [addToast, isSysKeySelected],
-  );
-
-  const verifyDrmEmpNo = useCallback(async () => {
-    // SYS 키 아니면 검증 자체를 막는다 (요구사항 3 강화)
-    if (!isSysKeySelected) {
-      addToast('시스템키를 선택하세요.', 'warning');
-      return;
-    }
-
-    const empNoRaw = (drmEmpNo || '').trim();
-    const empNo = empNoRaw.toUpperCase();
-
-    if (!empNoRaw) {
-      addToast('시스템 계정 사번을 입력해 주세요. (예: X99...)', 'warning');
-      return;
-    }
-
-    if (!isValidDrmEmpNoFormat(empNo)) {
-      addToast(
-        '사번 형식이 올바르지 않습니다. X99로 시작하는 사번만 입력해 주세요.',
-        'error',
-      );
-      setDrmStatus(DRM_STATUS.invalid);
-      drmVerifiedEmpNoRef.current = null;
-      return;
-    }
-
-    const cached = drmCacheRef.current.get(empNo);
-    if (cached) {
-      setDrmStatus(cached);
-      drmVerifiedEmpNoRef.current =
-        cached === DRM_STATUS.valid ? empNo : null;
-      return;
-    }
-
-    try {
-      setDrmStatus(DRM_STATUS.checking);
-
-      const res = await axios.get(
-        `${process.env.VITE_REACT_APP_API_STORE_URL}/drm/empNo/verify`,
-        { params: { empNo } },
-      );
-
-      const statusRaw = res?.data?.response?.status || res?.data?.status;
-      const normalized =
-        statusRaw === 'VALID'
-          ? DRM_STATUS.valid
-          : statusRaw === 'DUPLICATED'
-            ? DRM_STATUS.duplicated
-            : DRM_STATUS.invalid;
-
-      drmCacheRef.current.set(empNo, normalized);
-      setDrmStatus(normalized);
-      drmVerifiedEmpNoRef.current =
-        normalized === DRM_STATUS.valid ? empNo : null;
-
-      if (normalized === DRM_STATUS.duplicated) {
-        addToast('이미 등록된 시스템 계정입니다.', 'warning');
-      } else if (normalized === DRM_STATUS.invalid) {
-        addToast('유효하지 않은 시스템 계정입니다.', 'error');
-      } else {
-        addToast('유효한 시스템 계정입니다.', 'success');
-      }
-    } catch (e) {
-      setDrmStatus(DRM_STATUS.idle);
-      drmVerifiedEmpNoRef.current = null;
-      addToast('사번 유효성 확인 중 오류가 발생했습니다.', 'error');
-    }
-  }, [drmEmpNo, addToast, isSysKeySelected]);
-
-  // [CHANGED] DRM 구독 가능 조건
-  const canRequestSubscribeForDrm = useMemo(() => {
-    if (!isDrm) return true;
-    const empNo = (drmEmpNo || '').trim().toUpperCase();
-    return (
-      drmStatus === DRM_STATUS.valid && drmVerifiedEmpNoRef.current === empNo
-    );
-  }, [isDrm, drmEmpNo, drmStatus]);
-
-  // =========================
-  // [CHANGED] RootKey 편집/적용 핸들링
-  // =========================
-  const handleClickRootKeyEditOrApply = useCallback(() => {
-    const currentRootKey = serviceDetail?.rootKey || '';
-
-    // 편집 시작
-    if (!isRootKeyEditing) {
-      setIsRootKeyEditing(true);
-      setRootKeyDraft(currentRootKey);
-      return;
-    }
-
-    // 적용
-    const nextRootKey = (rootKeyDraft || '').trim();
-    if (!nextRootKey) {
-      addToast('Root Key를 입력해 주세요.', 'warning');
-      return;
-    }
-
-    dispatch(
-      updateRootKey({
-        svcId,
-        rootKey: nextRootKey,
-        addToast,
-        toastSuccess: 'Root Key가 적용되었습니다.',
-        toastError: 'Root Key 적용에 실패했습니다.',
-      }),
-    );
-
-    // 성공/실패는 saga에서 토스트 및 store updateRootKeySuccess로 처리됨
-    // UI는 성공 시에만 닫히게 하고 싶으니, success 플래그로 닫자:
-  }, [
-    addToast,
-    dispatch,
-    isRootKeyEditing,
-    rootKeyDraft,
-    serviceDetail,
-    svcId,
-  ]);
-
-  // RootKey 저장 성공 시 편집 종료
-  useEffect(() => {
-    if (updateRootKeySuccess) {
-      setIsRootKeyEditing(false);
-      setRootKeyDraft('');
-    }
-  }, [updateRootKeySuccess]);
-
   // 컨펌 창 오픈 핸들링
   const handleOpenConfirm = (type) => {
     if (type === 'requestSubscriptionPermission') {
@@ -543,7 +539,7 @@ const ApiDetail = () => {
         });
       }
     } else if (type === 'requestSubscribe') {
-      // [CHANGED] DRM일 때 사번 검증 안되면 confirm 자체를 안 띄움
+      // ✅ DRM: 사번 검증 완료 전에는 confirm 자체를 열지 않음(버튼도 disabled 처리)
       if (isDrm && !canRequestSubscribeForDrm) {
         addToast(
           "DRM 서비스는 '시스템 계정 사번' 유효성 확인 후 구독 신청 가능합니다.",
@@ -621,6 +617,7 @@ const ApiDetail = () => {
     }
   };
 
+  // 구독 권한 신청 시
   const handleRequestSubscriptionPermission = () => {
     dispatch(
       requestSubscriptionPermission({
@@ -637,8 +634,8 @@ const ApiDetail = () => {
     handleCloseConfirm();
   };
 
+  // 구독 신청 시
   const handleRequestSubscribe = () => {
-    // [CHANGED] 사번 검증이 안됐으면 여기서도 방어
     if (isDrm && !canRequestSubscribeForDrm) {
       addToast(
         "DRM 서비스는 '시스템 계정 사번' 유효성 확인 후 구독 신청 가능합니다.",
@@ -650,6 +647,7 @@ const ApiDetail = () => {
     const targetApiList = apiList.filter((api) =>
       checkedList.includes(api?.apiId),
     );
+
     dispatch(
       requestSubscribe({
         svcId,
@@ -664,6 +662,7 @@ const ApiDetail = () => {
     handleCloseConfirm();
   };
 
+  // 구독 해제
   const handleCancelSubscribe = () => {
     dispatch(
       cancelSubscribe({
@@ -679,6 +678,7 @@ const ApiDetail = () => {
     handleCloseConfirm();
   };
 
+  // 삭제 예약 완료
   const handleFinishDeleteReservation = (deleteDate) => {
     setConfirm({
       open: true,
@@ -699,6 +699,7 @@ const ApiDetail = () => {
     setOpenDeleteReservationModal(false);
   };
 
+  // 삭제 예약
   const handleReserveDeleteService = (date) => {
     dispatch(
       reserveDeleteService({
@@ -712,6 +713,7 @@ const ApiDetail = () => {
     handleCloseConfirm();
   };
 
+  // 삭제 예약 취소
   const handleCancelDeleteReserve = () => {
     dispatch(
       cancelDeleteReserve({
@@ -793,18 +795,9 @@ const ApiDetail = () => {
       : []),
   ];
 
-  // =========================
-  // [CHANGED] DRM일 때 “구독 신청” 버튼 타입/disabled 계산
-  // =========================
-  const isDrmSubscribeGateBlocked = useMemo(() => {
-    if (!isDrm) return false;
-    return !canRequestSubscribeForDrm;
-  }, [isDrm, canRequestSubscribeForDrm]);
-
-  const getSubscribeButtonType = useCallback(() => {
-    if (!isDrm) return 'primary';
-    return isDrmSubscribeGateBlocked ? 'grey' : 'primary';
-  }, [isDrm, isDrmSubscribeGateBlocked]);
+  // ✅ 구독/권한 관련 버튼 스타일/disabled 공통 처리
+  const drmActionDisabled = isDrm && !canRequestSubscribeForDrm;
+  const drmActionType = drmActionDisabled ? 'grey' : 'primary';
 
   return (
     <PageLayout>
@@ -814,7 +807,9 @@ const ApiDetail = () => {
           intlObj.get(message['store.apiDetail']),
         ]}
       />
+
       <PageLayout.Article onScroll={handleScroll} ref={scrollRef}>
+        {/* ✅ requestLoading만 전체 spin. fetchLoading은 무한 스핀 방지 위해 전체에 걸지 않음 */}
         <Spin spinning={!isAuthorized || requestLoading}>
           <Detail ref={detailRef} />
           <Divide $border={false} top={20} bottom={0} />
@@ -830,83 +825,88 @@ const ApiDetail = () => {
             </>
           )}
 
-          {/* =========================
-              DRM RootKey + Allow IP
-             ========================= */}
-          <Divide $border={false} top={20} bottom={0} />
+          {/* =======================
+              DRM 전용 UI
+             ======================= */}
+          {isDrm && (
+            <>
+              <Divide $border={false} top={20} bottom={0} />
 
-          <Spin spinning={!isAuthorized || fetchLoading}>
-            {isDrm && (
-              <>
-                <div>
-                  <ContentHeader $border={true} title="Root Key" spacing={20} />
+              {/* Root Key */}
+              <div>
+                <ContentHeader $border={true} title="Root Key" spacing={20} />
 
-                  <Division flex={true} gap={10} alignItems={'center'}>
-                    {isRootKeyEditing ? (
-                      <Input
-                        value={rootKeyDraft}
-                        onChange={(e) => setRootKeyDraft(e.target.value)}
-                        placeholder="Root Key를 입력하세요."
-                        maxLength={200}
-                        maxWidth={520}
-                      />
-                    ) : (
-                      <div style={{ wordBreak: 'break-all', opacity: 0.9 }}>
-                        {serviceDetail?.rootKey
-                          ? serviceDetail.rootKey
-                          : '-'}
-                      </div>
-                    )}
+                <Division flex={true} gap={10} alignItems={'center'}>
+                  {isEditingRootKey ? (
+                    <Input
+                      value={rootKeyDraft}
+                      onChange={(e) => setRootKeyDraft(e.target.value)}
+                      placeholder="Root Key를 입력하세요."
+                      maxLength={300}
+                      maxWidth={520}
+                      disabled={updateRootKeyLoading}
+                    />
+                  ) : (
+                    <div style={{ wordBreak: 'break-all', opacity: 0.9 }}>
+                      {serviceDetail?.rootKey || '-'}
+                    </div>
+                  )}
 
-                    {/* [CHANGED] 복사 -> 수정/적용 */}
+                  <Buttons.Outlined
+                    type={'grey'}
+                    onClick={handleClickRootKeyButton}
+                    minWidth="80"
+                    disabled={updateRootKeyLoading}
+                  >
+                    {isEditingRootKey
+                      ? updateRootKeyLoading
+                        ? '적용 중...'
+                        : '적용'
+                      : '수정'}
+                  </Buttons.Outlined>
+
+                  {isEditingRootKey && (
                     <Buttons.Outlined
                       type={'grey'}
-                      onClick={handleClickRootKeyEditOrApply}
+                      onClick={() => {
+                        setIsEditingRootKey(false);
+                        setRootKeyDraft(serviceDetail?.rootKey || '');
+                      }}
                       minWidth="80"
                       disabled={updateRootKeyLoading}
                     >
-                      {isRootKeyEditing ? '적용' : '수정'}
+                      취소
                     </Buttons.Outlined>
-                  </Division>
-                </div>
+                  )}
+                </Division>
+              </div>
 
-                <Divide $border={false} top={20} bottom={0} />
+              <Divide $border={false} top={20} bottom={0} />
 
-                <div>
-                  <ContentHeader
-                    title="허용 IP 관리"
-                    $border={true}
-                    spacing={20}
-                  />
-                  <Division flex={true} gap={10} alignItems={'center'}>
-                    <Input
-                      value={drmAllowIp}
-                      onChange={(e) => setDrmAllowIp(e.target.value)}
-                      placeholder="허용 IP를 입력하세요. ( 예 : 10.0.0.0/25 )"
-                      maxLength={100}
-                      maxWidth={350}
-                    />
-                    <Buttons.Outlined
-                      type={'grey'}
-                      onClick={() => {}}
-                      minWidth="80"
-                    >
-                      추가
-                    </Buttons.Outlined>
-                  </Division>
+              {/* 허용 IP 관리 (DrmAllowIpGrid로 교체) */}
+              <div>
+                <ContentHeader
+                  title="허용 IP 관리"
+                  $border={true}
+                  spacing={20}
+                />
+                <Division flex={true} gap={20} alignItems={'center'} mb={10}>
+                  <Division.SubTitle>
+                    단일 IP(예: 10.0.0.1) 또는 CIDR(예: 10.0.0.0/25)만 허용합니다.
+                  </Division.SubTitle>
+                </Division>
 
-                  <Divide top={10} bottom={0} $border={false} />
+                {/* ✅ 네가 만든 재사용 그리드 */}
+                <DrmAllowIpGrid
+                  svcId={svcId}
+                  disabled={false /* 권한/상태에 따라 true 처리 가능 */}
+                />
+              </div>
 
-                  <Spin spinning={fetchApiListLoading}>
-                    <IpList />
-                  </Spin>
-                </div>
+              <Divide $border={false} top={30} bottom={0} />
 
-                <Divide top={30} bottom={0} $border={false} />
-
-                {/* =========================
-                    DRM 시스템 계정 사번
-                   ========================= */}
+              {/* 시스템 계정 사번 */}
+              <div>
                 <ContentHeader
                   $border={true}
                   title="시스템 계정 사번"
@@ -916,30 +916,33 @@ const ApiDetail = () => {
                 <Division flex={true} gap={20} alignItems={'center'} mb={20}>
                   <Division.SubTitle>
                     DRM 서비스 구독 전, X99로 시작하는 시스템 계정 사번 확인이 필요합니다.
+                    <br />
+                    (SYS 키 선택 시에만 입력/검증이 가능합니다.)
                   </Division.SubTitle>
                 </Division>
 
                 <Division flex={true} gap={10} alignItems={'center'}>
                   <Input
+                    ref={drmEmpNoInputRef}
                     value={drmEmpNo}
-                    onFocus={handleFocusDrmEmpNo} // [CHANGED]
+                    onFocus={handleDrmEmpNoFocus}
                     onChange={(e) => {
                       setDrmEmpNo(e.target.value);
-                      // 입력 변경 시에도 검증 무효화
+                      // 입력 변경 시 검증 무효화
                       setDrmStatus(DRM_STATUS.idle);
                       drmVerifiedEmpNoRef.current = null;
                     }}
                     placeholder="예: X990001"
                     maxLength={100}
                     maxWidth={350}
-                    // SYS 키 아니면 사실상 입력 불가
-                    disabled={!isSysKeySelected} // [CHANGED]
+                    disabled={!isSysKeyType(selectedKey)}
                   />
+
                   <Buttons.Outlined
                     type={'grey'}
                     onClick={verifyDrmEmpNo}
-                    minWidth="80"
-                    disabled={drmStatus === DRM_STATUS.checking || !isSysKeySelected}
+                    minWidth="110"
+                    disabled={!isSysKeyType(selectedKey) || drmStatus === DRM_STATUS.checking}
                   >
                     {drmStatus === DRM_STATUS.checking ? '확인 중...' : '유효성 확인'}
                   </Buttons.Outlined>
@@ -948,22 +951,21 @@ const ApiDetail = () => {
                 <Divide $border={false} top={10} bottom={0} />
 
                 <div style={{ fontSize: 13, opacity: 0.85 }}>
-                  {drmStatus === DRM_STATUS.valid && '유효한 시스템 계정입니다.'}
-                  {drmStatus === DRM_STATUS.duplicated &&
-                    '이미 등록된 시스템 계정입니다.'}
-                  {drmStatus === DRM_STATUS.invalid && '유효하지 않은 시스템 계정입니다.'}
-                  {drmStatus === DRM_STATUS.idle &&
-                    "사번 입력 후 '유효성 확인'을 눌러주세요"}
+                  {!isSysKeyType(selectedKey) && 'SYS 키를 선택하면 사번 입력이 가능합니다.'}
+                  {isSysKeyType(selectedKey) && drmStatus === DRM_STATUS.valid && '유효한 시스템 계정입니다.'}
+                  {isSysKeyType(selectedKey) && drmStatus === DRM_STATUS.duplicated && '이미 등록된 시스템 계정입니다.'}
+                  {isSysKeyType(selectedKey) && drmStatus === DRM_STATUS.invalid && '유효하지 않은 시스템 계정입니다.'}
+                  {isSysKeyType(selectedKey) && drmStatus === DRM_STATUS.idle && "사번 입력 후 '유효성 확인'을 눌러주세요"}
                 </div>
 
                 <Divide $border={false} top={10} bottom={0} />
-              </>
-            )}
-          </Spin>
+              </div>
+            </>
+          )}
 
-          {/* =========================
+          {/* =======================
               하단 버튼 영역
-             ========================= */}
+             ======================= */}
           <Division flex={true} gap={10} justifyContent={'center'}>
             <Buttons.Basic type={'line'} onClick={navigateToList}>
               {intlObj.get(message['store.list'])}
@@ -973,29 +975,30 @@ const ApiDetail = () => {
               <>
                 {isCancelableSubscription && (
                   <Buttons.Basic
-                    type={getSubscribeButtonType()}
+                    type={drmActionType}
                     onClick={() => handleOpenConfirm('cancelSubscribe')}
-                    disabled={isDrmSubscribeGateBlocked} // [CHANGED] DRM gate
+                    disabled={drmActionDisabled}
                   >
                     {intlObj.get(message['store.subCcl'])}
                   </Buttons.Basic>
                 )}
+
                 {hasPermission || isAdmin ? (
                   <Buttons.Basic
-                    type={getSubscribeButtonType()}
+                    type={drmActionType}
                     onClick={() => handleOpenConfirm('cancelDeleteReserve')}
-                    disabled={isDrmSubscribeGateBlocked}
+                    disabled={drmActionDisabled}
                   >
                     {intlObj.get(message['store.cancelDelete'])}
                   </Buttons.Basic>
                 ) : (
-                  <Buttons.Basic type={getSubscribeButtonType()} disabled>
+                  <Buttons.Basic type={drmActionType} disabled>
                     {intlObj.get(message['store.toBeEnd'])}
                   </Buttons.Basic>
                 )}
               </>
             ) : isDeleted === 'NOR' ? (
-              <Buttons.Basic type={getSubscribeButtonType()} disabled>
+              <Buttons.Basic type={drmActionType} disabled>
                 {intlObj.get(message['store.ended'])}
               </Buttons.Basic>
             ) : (
@@ -1004,38 +1007,37 @@ const ApiDetail = () => {
                   <>
                     {!SubscriptionAvailability ? (
                       subscriptionPermission === 'APR' ? (
-                        <Buttons.Basic type={getSubscribeButtonType()} disabled>
+                        <Buttons.Basic type={drmActionType} disabled>
                           {intlObj.get(message['store.pendingPermissionApr'])}
                         </Buttons.Basic>
                       ) : (
                         <Buttons.Basic
-                          type={getSubscribeButtonType()}
+                          type={drmActionType}
                           onClick={() =>
                             handleOpenConfirm('requestSubscriptionPermission')
                           }
-                          disabled={isDrmSubscribeGateBlocked}
+                          disabled={drmActionDisabled}
                         >
                           {intlObj.get(message['store.subPermissionReq'])}
                         </Buttons.Basic>
                       )
                     ) : isSubscriptionApprovalPending ? (
-                      <Buttons.Basic type={getSubscribeButtonType()} disabled>
+                      <Buttons.Basic type={drmActionType} disabled>
                         {intlObj.get(message['store.pendingSubApr'])}
                       </Buttons.Basic>
                     ) : isSubscribeAll ? (
                       <Buttons.Basic
-                        type={getSubscribeButtonType()}
+                        type={drmActionType}
                         onClick={() => handleOpenConfirm('cancelSubscribe')}
-                        disabled={isDrmSubscribeGateBlocked}
+                        disabled={drmActionDisabled}
                       >
                         {intlObj.get(message['store.subCcl'])}
                       </Buttons.Basic>
                     ) : (
-                      // [CHANGED] 여기 = 구독신청 버튼
                       <Buttons.Basic
-                        type={getSubscribeButtonType()}
+                        type={drmActionType}
                         onClick={() => handleOpenConfirm('requestSubscribe')}
-                        disabled={isDrmSubscribeGateBlocked} // 요구사항 2
+                        disabled={drmActionDisabled}
                       >
                         {intlObj.get(message['store.subReq'])}
                       </Buttons.Basic>
