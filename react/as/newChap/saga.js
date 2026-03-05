@@ -1,6 +1,5 @@
 // store/reduxStore/detail/saga.js
 import { call, put, takeLatest } from 'redux-saga/effects';
-import axios from 'axios';
 import {
   increaseViewCount,
   fetchSubscriptionPermission,
@@ -37,19 +36,13 @@ import {
   cancelDeleteReserveSuccess,
   cancelDeleteReserveFail,
 
-  // ✅ [ADDED]
-  addDrmAllowIp,
-  addDrmAllowIpSuccess,
-  addDrmAllowIpFail,
-  updateDrmAllowIp,
-  updateDrmAllowIpSuccess,
-  updateDrmAllowIpFail,
-  deleteDrmAllowIp,
-  deleteDrmAllowIpSuccess,
-  deleteDrmAllowIpFail,
+  // [CHANGED]
+  updateRootKey,
+  updateRootKeySuccess,
+  updateRootKeyFail,
 } from './reducer';
+import axios from 'axios';
 
-/* ---------------- existing axios ---------------- */
 const axiosPutViewCount = async (svcId) => {
   const response = await axios.put(
     `${process.env.VITE_REACT_APP_API_STORE_URL}/api/vwCnt`,
@@ -179,33 +172,19 @@ const axiosPutCancelDeleteReserve = async (svcId) => {
   return response;
 };
 
-/* ---------------- ✅ [ADDED] DRM allow IP axios ---------------- */
-// 응답코드 정책은 팀 API에 맞춰 조정 가능
-const axiosAddDrmAllowIp = async (body) => {
-  const response = await axios.post(
-    `${process.env.VITE_REACT_APP_API_STORE_URL}/drm/allow-ips`,
-    body,
-  );
-  return response;
-};
-
-const axiosUpdateDrmAllowIp = async (allowIpId, body) => {
+// =========================
+// [CHANGED] RootKey 수정 API
+// =========================
+const axiosPutUpdateRootKey = async ({ svcId, rootKey }) => {
   const response = await axios.put(
-    `${process.env.VITE_REACT_APP_API_STORE_URL}/drm/allow-ips/${allowIpId}`,
-    body,
+    `${process.env.VITE_REACT_APP_API_STORE_URL}/drm/rootKey`,
+    { svcId, rootKey },
   );
+  if (!response.status || response.status < 200 || response.status >= 300)
+    throw new Error(response);
   return response;
 };
 
-const axiosDeleteDrmAllowIp = async (allowIpId, svcId) => {
-  const response = await axios.delete(
-    `${process.env.VITE_REACT_APP_API_STORE_URL}/drm/allow-ips/${allowIpId}`,
-    { params: { svcId } },
-  );
-  return response;
-};
-
-/* ---------------- existing sagas ---------------- */
 function* increaseViewCountSaga(action) {
   try {
     const svcId = action?.payload;
@@ -244,9 +223,6 @@ function* getServiceDetailSaga(action) {
     const documentList = documentResponse?.data?.response || [];
     serviceDetail.documentList = documentList;
 
-    // ✅ allowIps/rootKey는 /api/dtl 응답에 포함시키는 방식 권장
-    // serviceDetail.drm.allowIps / serviceDetail.rootKey
-
     yield put(fetchServiceDetailSuccess(serviceDetail));
   } catch (error) {
     yield put(fetchServiceDetailFail());
@@ -257,13 +233,14 @@ function* getApiListSaga(action) {
   try {
     const { svcId, keyId } = action?.payload;
     const response = yield call(axiosGetApiList, svcId, keyId);
-    const apiList = (response?.data || []).filter((api) => api?.subStat !== 'ERR');
+    const apiList = (response?.data || []).filter(
+      (api) => api?.subStat !== 'ERR',
+    );
     const checkedList = [];
     apiList.forEach((value) => {
       const subStat = value?.subStat;
-      if (subStat === 'N' || subStat === 'REJ' || subStat === 'CCL') {
+      if (subStat === 'N' || subStat === 'REJ' || subStat === 'CCL')
         checkedList.push(value.apiId);
-      }
       const reqParams = value?.reqParams;
       try {
         const info = reqParams ? JSON.parse(JSON.parse(reqParams)) : {};
@@ -343,17 +320,29 @@ function* requestSubscriptionPermissionSaga(action) {
 }
 
 function* requestSubscribeSaga(action) {
-  const { svcId, apiList, keyId, addToast, toastSuccess, toastWarning, toastError } =
-    action?.payload || {};
+  const {
+    svcId,
+    apiList,
+    keyId,
+    addToast,
+    toastSuccess,
+    toastWarning,
+    toastError,
+  } = action?.payload || {};
 
   try {
-    const body = apiList.map((api) => ({
-      svcId,
-      keyId,
-      pubId: api.pubId,
-      subStatCd: 'APR',
-      aprvReason: '구독 신청',
-    }));
+    const body = [];
+
+    for (const api of apiList) {
+      const { pubId } = api;
+      body.push({
+        svcId,
+        keyId,
+        pubId,
+        subStatCd: 'APR',
+        aprvReason: '구독 신청',
+      });
+    }
 
     const response = yield call(axiosPutUpdateSubscribe, body);
 
@@ -374,20 +363,29 @@ function* requestSubscribeSaga(action) {
 }
 
 function* requestCancelSubscribeSaga(action) {
-  const { svcId, apiList, keyId, addToast, toastSuccess, toastWarning, toastError } =
-    action?.payload || {};
+  const {
+    svcId,
+    apiList,
+    keyId,
+    addToast,
+    toastSuccess,
+    toastWarning,
+    toastError,
+  } = action?.payload || {};
 
   try {
     const body = apiList
       .filter((api) => api.subStat !== 'N')
-      .map((api) => ({
-        svcId,
-        keyId,
-        pubId: api.pubId,
-        subStatCd: 'CCL',
-        aprvReason: '구독 해제',
-      }));
-
+      .map((api) => {
+        const { pubId } = api;
+        return {
+          svcId,
+          keyId,
+          pubId,
+          subStatCd: 'CCL',
+          aprvReason: '구독 해제',
+        };
+      });
     const response = yield call(axiosPutUpdateSubscribe, body);
 
     if (response.status === 200) {
@@ -409,7 +407,12 @@ function* requestCancelSubscribeSaga(action) {
 function* reserveDeleteServiceSaga(action) {
   try {
     const { svcId, resDate, subCount, addToast, toast } = action?.payload;
-    const response = yield call(axiosPutReserveDeleteService, svcId, resDate, subCount);
+    const response = yield call(
+      axiosPutReserveDeleteService,
+      svcId,
+      resDate,
+      subCount,
+    );
     if (response.status === 200) {
       addToast(toast, 'success');
       yield put(reserveDeleteServiceSuccess());
@@ -432,111 +435,48 @@ function* cancelDeleteReserveSaga(action) {
   }
 }
 
-/* ---------------- ✅ [ADDED] DRM allow IP sagas ---------------- */
-function* addDrmAllowIpSaga(action) {
-  const {
-    svcId,
-    ipCidr,
-    addToast,
-    toastSuccess,
-    toastError,
-    toastDuplicated,
-  } = action?.payload || {};
-
-  try {
-    const res = yield call(axiosAddDrmAllowIp, { svcId, ipCidr });
-
-    if (res.status === 200) {
-      addToast?.(toastSuccess, 'success');
-      yield put(addDrmAllowIpSuccess());
-
-      // ✅ 서버와 완전 동기화(버그 최소)
-      yield put(fetchServiceDetail({ svcId }));
-    } else if (res?.response?.status === 409) {
-      addToast?.(toastDuplicated, 'warning');
-      yield put(addDrmAllowIpFail());
-    } else {
-      addToast?.(toastError, 'error');
-      yield put(addDrmAllowIpFail());
-    }
-  } catch (e) {
-    const status = e?.response?.status;
-    if (status === 409) addToast?.(toastDuplicated, 'warning');
-    else addToast?.(toastError, 'error');
-    yield put(addDrmAllowIpFail());
-  }
-}
-
-function* updateDrmAllowIpSaga(action) {
-  const {
-    svcId,
-    allowIpId,
-    ipCidr,
-    addToast,
-    toastSuccess,
-    toastError,
-    toastDuplicated,
-  } = action?.payload || {};
-
-  try {
-    const res = yield call(axiosUpdateDrmAllowIp, allowIpId, { svcId, ipCidr });
-
-    if (res.status === 200) {
-      addToast?.(toastSuccess, 'success');
-      yield put(updateDrmAllowIpSuccess());
-      yield put(fetchServiceDetail({ svcId }));
-    } else if (res?.response?.status === 409) {
-      addToast?.(toastDuplicated, 'warning');
-      yield put(updateDrmAllowIpFail());
-    } else {
-      addToast?.(toastError, 'error');
-      yield put(updateDrmAllowIpFail());
-    }
-  } catch (e) {
-    const status = e?.response?.status;
-    if (status === 409) addToast?.(toastDuplicated, 'warning');
-    else addToast?.(toastError, 'error');
-    yield put(updateDrmAllowIpFail());
-  }
-}
-
-function* deleteDrmAllowIpSaga(action) {
-  const { svcId, allowIpId, addToast, toastSuccess, toastError } =
+// =========================
+// [CHANGED] RootKey 수정 Saga
+// =========================
+function* updateRootKeySaga(action) {
+  const { svcId, rootKey, addToast, toastSuccess, toastError } =
     action?.payload || {};
-
   try {
-    const res = yield call(axiosDeleteDrmAllowIp, allowIpId, svcId);
+    const res = yield call(axiosPutUpdateRootKey, { svcId, rootKey });
+    // 백엔드 응답이 rootKey를 내려준다고 가정 (없으면 요청 값으로 반영)
+    const nextRootKey =
+      res?.data?.response?.rootKey !== undefined
+        ? res?.data?.response?.rootKey
+        : rootKey;
 
-    if (res.status === 200) {
-      addToast?.(toastSuccess, 'success');
-      yield put(deleteDrmAllowIpSuccess());
-      yield put(fetchServiceDetail({ svcId }));
-    } else {
-      addToast?.(toastError, 'error');
-      yield put(deleteDrmAllowIpFail());
-    }
+    addToast(toastSuccess, 'success');
+    yield put(updateRootKeySuccess({ rootKey: nextRootKey }));
   } catch (e) {
-    addToast?.(toastError, 'error');
-    yield put(deleteDrmAllowIpFail());
+    addToast(toastError, 'error');
+    yield put(updateRootKeyFail());
   }
 }
 
 export default function* detailSaga() {
   yield takeLatest(increaseViewCount.type, increaseViewCountSaga);
-  yield takeLatest(fetchSubscriptionPermission.type, getSubscriptionPermissionSaga);
+  yield takeLatest(
+    fetchSubscriptionPermission.type,
+    getSubscriptionPermissionSaga,
+  );
   yield takeLatest(fetchServiceDetail.type, getServiceDetailSaga);
   yield takeLatest(fetchApiList.type, getApiListSaga);
   yield takeLatest(fetchManagerList.type, getManagerListSaga);
   yield takeLatest(fetchHistoryList.type, getHistoryListSaga);
   yield takeLatest(updateHistory.type, updateHistorySaga);
-  yield takeLatest(requestSubscriptionPermission.type, requestSubscriptionPermissionSaga);
+  yield takeLatest(
+    requestSubscriptionPermission.type,
+    requestSubscriptionPermissionSaga,
+  );
   yield takeLatest(requestSubscribe.type, requestSubscribeSaga);
   yield takeLatest(cancelSubscribe.type, requestCancelSubscribeSaga);
   yield takeLatest(reserveDeleteService.type, reserveDeleteServiceSaga);
   yield takeLatest(cancelDeleteReserve.type, cancelDeleteReserveSaga);
 
-  // ✅ [ADDED]
-  yield takeLatest(addDrmAllowIp.type, addDrmAllowIpSaga);
-  yield takeLatest(updateDrmAllowIp.type, updateDrmAllowIpSaga);
-  yield takeLatest(deleteDrmAllowIp.type, deleteDrmAllowIpSaga);
+  // [CHANGED]
+  yield takeLatest(updateRootKey.type, updateRootKeySaga);
 }
