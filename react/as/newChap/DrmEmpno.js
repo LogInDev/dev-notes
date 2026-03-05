@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import ContentHeader from "@/components/Organisms/ContentHeader";
 import Division from "@/components/Atoms/Division";
@@ -8,7 +8,7 @@ import Divide from "@/components/Atoms/Divide";
 import { useToast } from "@/utils/ToastProvider";
 import {
   verifyDrmEmpNo,
-  resetDrmEmpNoStatus,
+  resetDrmEmpNoResult,
 } from "@/store/reduxStore/detail/reducer";
 
 const DRM_STATUS = {
@@ -21,68 +21,96 @@ const DRM_STATUS = {
 
 const isValidDrmEmpNoFormat = (value) => /^X99\d+$/i.test((value || "").trim());
 
-const DrmEmpNoSection = ({ svcId }) => {
+const DrmEmpNoSection = ({ svcId, onVerified }) => {
   const dispatch = useDispatch();
   const { addToast } = useToast();
 
   const [empNo, setEmpNo] = useState("");
+  const [status, setStatus] = useState(DRM_STATUS.idle);
 
-  const drmEmpNoState = useSelector((state) => state.get("detail"))?.drmEmpNo || {};
-  const status = drmEmpNoState?.status || DRM_STATUS.idle;
-  const loading = drmEmpNoState?.loading || false;
-  const verifiedEmpNo = drmEmpNoState?.verifiedEmpNo;
-  const cache = drmEmpNoState?.cache || {};
+  // ✅ 캐시는 ref(Map)로 관리
+  const cacheRef = useRef(new Map()); // empNo -> status(valid/duplicated/invalid)
+  const verifiedRef = useRef(null); // verified empNo
 
-  // ✅ 버튼 클릭 1회 + 캐시: 컴포넌트가 먼저 cache를 확인하고
-  // 있으면 saga 호출 없이 상태만 반영할 수 있게 "localRef"로도 유지
-  const localCacheRef = useRef(new Map());
+  const drmEmpNoState =
+    useSelector((state) => state.get("detail"))?.drmEmpNo || {};
+  const verifyLoading = drmEmpNoState?.verifyLoading || false;
+  const success = drmEmpNoState?.success || false;
+  const error = drmEmpNoState?.error;
+  const result = drmEmpNoState?.result; // {empNo,status}
 
   useEffect(() => {
-    // redux cache -> local cache 동기화(성능/조회 빠름)
-    Object.keys(cache).forEach((k) => localCacheRef.current.set(k, cache[k]));
-  }, [cache]);
+    if (success && result) {
+      const emp = (result.empNo || empNo || "").trim().toUpperCase();
+      const raw = result.status; // VALID/DUPLICATED/INVALID
+      const normalized =
+        raw === "VALID" ? DRM_STATUS.valid
+        : raw === "DUPLICATED" ? DRM_STATUS.duplicated
+        : DRM_STATUS.invalid;
 
-  const normalizedEmpNo = useMemo(() => (empNo || "").trim().toUpperCase(), [empNo]);
+      cacheRef.current.set(emp, normalized);
+      setStatus(normalized);
+
+      if (normalized === DRM_STATUS.valid) {
+        verifiedRef.current = emp;
+        onVerified?.(emp); // 필요시 외부로 전달
+        addToast("유효한 시스템 계정입니다.", "success");
+      } else if (normalized === DRM_STATUS.duplicated) {
+        verifiedRef.current = null;
+        addToast("이미 등록된 시스템 계정입니다.", "warning");
+      } else {
+        verifiedRef.current = null;
+        addToast("유효하지 않은 시스템 계정입니다.", "error");
+      }
+
+      dispatch(resetDrmEmpNoResult());
+    }
+
+    if (error) {
+      setStatus(DRM_STATUS.idle);
+      verifiedRef.current = null;
+      addToast("사번 유효성 확인 중 오류가 발생했습니다.", "error");
+      dispatch(resetDrmEmpNoResult());
+    }
+  }, [success, error, result]);
 
   const verify = useCallback(() => {
-    const value = normalizedEmpNo;
+    const raw = (empNo || "").trim();
+    const v = raw.toUpperCase();
 
-    if (!value) {
+    if (!raw) {
       addToast("시스템 계정 사번을 입력해 주세요. (예: X99...)", "warning");
       return;
     }
-    if (!isValidDrmEmpNoFormat(value)) {
+
+    if (!isValidDrmEmpNoFormat(v)) {
+      setStatus(DRM_STATUS.invalid);
+      verifiedRef.current = null;
       addToast("사번 형식이 올바르지 않습니다. X99로 시작하는 사번만 입력해 주세요.", "error");
-      dispatch(resetDrmEmpNoStatus());
       return;
     }
 
-    // ✅ 캐시 히트면 saga 호출 안 함(성능)
-    const cached = localCacheRef.current.get(value);
+    const cached = cacheRef.current.get(v);
     if (cached) {
-      // redux state를 직접 바꾸는 액션을 추가해도 되지만,
-      // 최소 수정으로는 "다시 verify dispatch"를 피하려면
-      // 그냥 안내만 하고 사용가능여부는 아래 canRequestSubscribeForDrm으로 판단해도 됨.
+      setStatus(cached);
+      verifiedRef.current = cached === DRM_STATUS.valid ? v : null;
       if (cached === DRM_STATUS.valid) addToast("유효한 시스템 계정입니다.", "success");
       if (cached === DRM_STATUS.duplicated) addToast("이미 등록된 시스템 계정입니다.", "warning");
       if (cached === DRM_STATUS.invalid) addToast("유효하지 않은 시스템 계정입니다.", "error");
       return;
     }
 
-    dispatch(verifyDrmEmpNo({ svcId, empNo: value }));
-  }, [normalizedEmpNo, dispatch, addToast, svcId]);
+    setStatus(DRM_STATUS.checking);
+    dispatch(verifyDrmEmpNo({ svcId, empNo: v }));
+  }, [empNo, svcId]);
 
-  // ✅ saga 결과에 대한 toast는 컴포넌트에서만
-  useEffect(() => {
-    if (status === DRM_STATUS.valid) addToast("유효한 시스템 계정입니다.", "success");
-    if (status === DRM_STATUS.duplicated) addToast("이미 등록된 시스템 계정입니다.", "warning");
-    if (status === DRM_STATUS.invalid) addToast("유효하지 않은 시스템 계정입니다.", "error");
+  const helperText = useMemo(() => {
+    if (status === DRM_STATUS.checking) return "확인 중...";
+    if (status === DRM_STATUS.valid) return "유효한 시스템 계정입니다.";
+    if (status === DRM_STATUS.duplicated) return "이미 등록된 시스템 계정입니다.";
+    if (status === DRM_STATUS.invalid) return "유효하지 않은 시스템 계정입니다.";
+    return "사번 입력 후 '유효성 확인'을 눌러주세요";
   }, [status]);
-
-  // ✅ 구독 가능 여부(기존 ApiDetail에서 쓰던 조건을 여기로 이동해도 됨)
-  const canRequestSubscribeForDrm = useMemo(() => {
-    return status === DRM_STATUS.valid && verifiedEmpNo === normalizedEmpNo;
-  }, [status, verifiedEmpNo, normalizedEmpNo]);
 
   return (
     <div>
@@ -99,30 +127,26 @@ const DrmEmpNoSection = ({ svcId }) => {
           value={empNo}
           onChange={(e) => {
             setEmpNo(e.target.value);
-            dispatch(resetDrmEmpNoStatus()); // 입력 바뀌면 검증 상태 리셋
+            setStatus(DRM_STATUS.idle);
+            verifiedRef.current = null;
           }}
           placeholder="예: X990001"
           maxLength={100}
           maxWidth={350}
         />
-        <Buttons.Outlined type={"grey"} onClick={verify} minWidth="80" disabled={loading}>
-          {loading ? "확인 중..." : "유효성 확인"}
+        <Buttons.Outlined
+          type={"grey"}
+          onClick={verify}
+          minWidth="80"
+          disabled={verifyLoading || status === DRM_STATUS.checking}
+        >
+          {status === DRM_STATUS.checking ? "확인 중..." : "유효성 확인"}
         </Buttons.Outlined>
       </Division>
 
       <Divide $border={false} top={10} bottom={0} />
-      <div style={{ fontSize: 13, opacity: 0.85 }}>
-        {status === DRM_STATUS.valid && "유효한 시스템 계정입니다."}
-        {status === DRM_STATUS.duplicated && "이미 등록된 시스템 계정입니다."}
-        {status === DRM_STATUS.invalid && "유효하지 않은 시스템 계정입니다."}
-        {status === DRM_STATUS.idle && "사번 입력 후 '유효성 확인'을 눌러주세요"}
-      </div>
 
-      {/* 필요하면 ApiDetail에서 이 값을 받아서 구독버튼 enabled/disabled에 반영 */}
-      {/* <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
-        구독 가능: {canRequestSubscribeForDrm ? "YES" : "NO"}
-      </div> */}
-
+      <div style={{ fontSize: 13, opacity: 0.85 }}>{helperText}</div>
       <Divide $border={false} top={10} bottom={0} />
     </div>
   );
