@@ -32,19 +32,11 @@ const initialState = {
     updateSuccess: false,
   },
 
-  // ✅ [ADDED] DRM 전용 상태 (구조 통일)
-  drm: {
-    allowIpList: [],
-
-    addAllowIpLoading: false,
-    addAllowIpSuccess: false,
-
-    updateAllowIpLoading: false,
-    updateAllowIpSuccess: false,
-
-    deleteAllowIpLoading: false,
-    deleteAllowIpSuccess: false,
-  },
+  // =========================
+  // [CHANGED] DRM RootKey update 상태
+  // =========================
+  updateRootKeyLoading: false,
+  updateRootKeySuccess: false,
 
   requestSubscriptionPermissionLoading: false,
   requestSubscriptionPermissionSuccess: false,
@@ -62,13 +54,13 @@ const detailSlice = createSlice({
   name: 'detail',
   initialState,
   reducers: {
-    initState: () => initialState,
-
+    initState: () => {
+      return initialState;
+    },
     updateField: (state, action) => {
       const { field, value } = action.payload;
       set(state, field, value);
     },
-
     increaseViewCount: () => {},
 
     fetchSubscriptionPermission: (state) => {
@@ -87,13 +79,9 @@ const detailSlice = createSlice({
       state.detail.fetchServiceDetailLoading = true;
     },
     fetchServiceDetailSuccess: (state, action) => {
-      const payload = action?.payload || {};
-      state.detail.serviceDetail = payload;
+      state.detail.serviceDetail = action?.payload || {};
       state.detail.fetchServiceDetailSuccess = true;
       state.detail.fetchServiceDetailLoading = false;
-
-      // ✅ [ADDED] serviceDetail 응답에 drm.allowIps 포함시키면 여기서 바로 세팅 (성능 최상)
-      state.drm.allowIpList = payload?.drm?.allowIps || [];
     },
     fetchServiceDetailFail: (state) => {
       state.detail.fetchServiceDetailLoading = false;
@@ -146,6 +134,30 @@ const detailSlice = createSlice({
     },
     updateHistoryFail: (state) => {
       state.history.updateLoading = false;
+    },
+
+    // =========================
+    // [CHANGED] RootKey 수정
+    // =========================
+    updateRootKey: (state) => {
+      state.updateRootKeyLoading = true;
+      state.updateRootKeySuccess = false;
+    },
+    updateRootKeySuccess: (state, action) => {
+      state.updateRootKeyLoading = false;
+      state.updateRootKeySuccess = true;
+
+      // 화면 즉시 반영 (serviceDetail에 rootKey 갱신)
+      const nextRootKey = action?.payload?.rootKey;
+      if (nextRootKey !== undefined) {
+        state.detail.serviceDetail = {
+          ...(state.detail.serviceDetail || {}),
+          rootKey: nextRootKey,
+        };
+      }
+    },
+    updateRootKeyFail: (state) => {
+      state.updateRootKeyLoading = false;
     },
 
     requestSubscriptionPermission: (state) => {
@@ -202,43 +214,6 @@ const detailSlice = createSlice({
     cancelDeleteReserveFail: (state) => {
       state.cancelDeleteReserveLoading = false;
     },
-
-    // ✅ [ADDED] DRM Allow IP CRUD 액션
-    addDrmAllowIp: (state) => {
-      state.drm.addAllowIpLoading = true;
-      state.drm.addAllowIpSuccess = false;
-    },
-    addDrmAllowIpSuccess: (state) => {
-      state.drm.addAllowIpLoading = false;
-      state.drm.addAllowIpSuccess = true;
-    },
-    addDrmAllowIpFail: (state) => {
-      state.drm.addAllowIpLoading = false;
-    },
-
-    updateDrmAllowIp: (state) => {
-      state.drm.updateAllowIpLoading = true;
-      state.drm.updateAllowIpSuccess = false;
-    },
-    updateDrmAllowIpSuccess: (state) => {
-      state.drm.updateAllowIpLoading = false;
-      state.drm.updateAllowIpSuccess = true;
-    },
-    updateDrmAllowIpFail: (state) => {
-      state.drm.updateAllowIpLoading = false;
-    },
-
-    deleteDrmAllowIp: (state) => {
-      state.drm.deleteAllowIpLoading = true;
-      state.drm.deleteAllowIpSuccess = false;
-    },
-    deleteDrmAllowIpSuccess: (state) => {
-      state.drm.deleteAllowIpLoading = false;
-      state.drm.deleteAllowIpSuccess = true;
-    },
-    deleteDrmAllowIpFail: (state) => {
-      state.drm.deleteAllowIpLoading = false;
-    },
   },
 });
 
@@ -253,17 +228,23 @@ export const {
   fetchServiceDetailSuccess,
   fetchServiceDetailFail,
   fetchApiList,
-  fetchApiListSuccess,
-  fetchApiListFail,
   fetchManagerList,
   fetchManagerListSuccess,
   fetchManagerListFail,
+  fetchApiListSuccess,
+  fetchApiListFail,
   fetchHistoryList,
   fetchHistoryListSuccess,
   fetchHistoryListFail,
   updateHistory,
   updateHistorySuccess,
   updateHistoryFail,
+
+  // [CHANGED]
+  updateRootKey,
+  updateRootKeySuccess,
+  updateRootKeyFail,
+
   requestSubscriptionPermission,
   requestSubscriptionPermissionSuccess,
   requestSubscriptionPermissionFail,
@@ -279,17 +260,6 @@ export const {
   cancelDeleteReserve,
   cancelDeleteReserveSuccess,
   cancelDeleteReserveFail,
-
-  // ✅ [ADDED]
-  addDrmAllowIp,
-  addDrmAllowIpSuccess,
-  addDrmAllowIpFail,
-  updateDrmAllowIp,
-  updateDrmAllowIpSuccess,
-  updateDrmAllowIpFail,
-  deleteDrmAllowIp,
-  deleteDrmAllowIpSuccess,
-  deleteDrmAllowIpFail,
 } = detailSlice.actions;
 
 export default detailSlice.reducer;
