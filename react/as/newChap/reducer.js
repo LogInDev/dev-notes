@@ -4,7 +4,7 @@ import { set } from 'lodash';
 
 const initialState = {
   permission: {
-    subscriptionPermission: 'NON', // NOR: 권한 존재, APR: 권한 승인 대기, NON: 권한 없음
+    subscriptionPermission: 'NON',
     fetchPermissionLoading: false,
     fetchPermissionSuccess: false,
   },
@@ -31,6 +31,8 @@ const initialState = {
     updateLoading: false,
     updateSuccess: false,
   },
+
+  // ✅ DRM 영역(기존 유지)
   drm: {
     allowIpList: [],
     addAllowIpLoading: false,
@@ -39,9 +41,12 @@ const initialState = {
     updateAllowIpSuccess: false,
     deleteAllowIpLoading: false,
     deleteAllowIpSuccess: false,
+
+    // ✅ RootKey 상태는 drm에 둔다(기존 구조 유지)
     updateRootKeyLoading: false,
     updateRootKeySuccess: false,
   },
+
   requestSubscriptionPermissionLoading: false,
   requestSubscriptionPermissionSuccess: false,
   requestSubscribeLoading: false,
@@ -58,14 +63,14 @@ const detailSlice = createSlice({
   name: 'detail',
   initialState,
   reducers: {
-    initState: () => {
-      return initialState;
-    },
+    initState: () => initialState,
     updateField: (state, action) => {
       const { field, value } = action.payload;
       set(state, field, value);
     },
+
     increaseViewCount: () => {},
+
     fetchSubscriptionPermission: (state) => {
       state.permission.fetchPermissionLoading = true;
     },
@@ -77,6 +82,7 @@ const detailSlice = createSlice({
     fetchSubscriptionPermissionFail: (state) => {
       state.permission.fetchPermissionLoading = false;
     },
+
     fetchServiceDetail: (state) => {
       state.detail.fetchServiceDetailLoading = true;
     },
@@ -86,11 +92,13 @@ const detailSlice = createSlice({
       state.detail.fetchServiceDetailSuccess = true;
       state.detail.fetchServiceDetailLoading = false;
 
+      // ✅ DRM allowIpList는 serviceDetail payload에서 항상 동기화
       state.drm.allowIpList = payload?.drm?.allowIps || [];
     },
     fetchServiceDetailFail: (state) => {
       state.detail.fetchServiceDetailLoading = false;
     },
+
     fetchApiList: (state) => {
       state.list.fetchApiListLoading = true;
     },
@@ -103,6 +111,7 @@ const detailSlice = createSlice({
     fetchApiListFail: (state) => {
       state.list.fetchApiListLoading = false;
     },
+
     fetchManagerList: (state) => {
       state.manager.fetchManagerListLoading = true;
     },
@@ -114,6 +123,7 @@ const detailSlice = createSlice({
     fetchManagerListFail: (state) => {
       state.manager.fetchManagerListLoading = false;
     },
+
     fetchHistoryList: (state) => {
       state.history.fetchHistoryListLoading = true;
     },
@@ -125,6 +135,7 @@ const detailSlice = createSlice({
     fetchHistoryListFail: (state) => {
       state.history.fetchHistoryListLoading = false;
     },
+
     updateHistory: (state) => {
       state.history.updateLoading = true;
       state.history.updateSuccess = false;
@@ -136,6 +147,7 @@ const detailSlice = createSlice({
     updateHistoryFail: (state) => {
       state.history.updateLoading = false;
     },
+
     requestSubscriptionPermission: (state) => {
       state.requestSubscriptionPermissionLoading = true;
     },
@@ -146,6 +158,7 @@ const detailSlice = createSlice({
     requestSubscriptionPermissionFail: (state) => {
       state.requestSubscriptionPermissionLoading = false;
     },
+
     requestSubscribe: (state) => {
       state.requestSubscribeLoading = true;
     },
@@ -156,6 +169,7 @@ const detailSlice = createSlice({
     requestSubscribeFail: (state) => {
       state.requestSubscribeLoading = false;
     },
+
     cancelSubscribe: (state) => {
       state.cancelSubscribeLoading = true;
     },
@@ -166,6 +180,7 @@ const detailSlice = createSlice({
     cancelSubscribeFail: (state) => {
       state.cancelSubscribeLoading = false;
     },
+
     reserveDeleteService: (state) => {
       state.reserveDeleteServiceLoading = true;
     },
@@ -176,6 +191,7 @@ const detailSlice = createSlice({
     reserveDeleteServiceFail: (state) => {
       state.reserveDeleteServiceLoading = false;
     },
+
     cancelDeleteReserve: (state) => {
       state.cancelDeleteReserveLoading = true;
     },
@@ -186,6 +202,10 @@ const detailSlice = createSlice({
     cancelDeleteReserveFail: (state) => {
       state.cancelDeleteReserveLoading = false;
     },
+
+    // =========================
+    // ✅ DRM Allow IP (기존 유지)
+    // =========================
     addDrmAllowIp: (state) => {
       state.drm.addAllowIpLoading = true;
       state.drm.addAllowIpSuccess = false;
@@ -220,6 +240,30 @@ const detailSlice = createSlice({
     },
     deleteDrmAllowIpFail: (state) => {
       state.drm.deleteAllowIpLoading = false;
+    },
+
+    // =========================
+    // ✅ [ADD] DRM RootKey Update
+    // =========================
+    updateDrmRootKey: (state) => {
+      state.drm.updateRootKeyLoading = true;
+      state.drm.updateRootKeySuccess = false;
+    },
+    updateDrmRootKeySuccess: (state, action) => {
+      state.drm.updateRootKeyLoading = false;
+      state.drm.updateRootKeySuccess = true;
+
+      // ✅ 화면 즉시 반영 (fetchServiceDetail 재조회도 하지만, 즉시 반영해 UX 좋게)
+      const nextRootKey = action?.payload?.rootKey;
+      if (nextRootKey !== undefined) {
+        state.detail.serviceDetail = {
+          ...(state.detail.serviceDetail || {}),
+          rootKey: nextRootKey,
+        };
+      }
+    },
+    updateDrmRootKeyFail: (state) => {
+      state.drm.updateRootKeyLoading = false;
     },
   },
 });
@@ -270,5 +314,11 @@ export const {
   deleteDrmAllowIp,
   deleteDrmAllowIpSuccess,
   deleteDrmAllowIpFail,
+
+  // ✅ [ADD]
+  updateDrmRootKey,
+  updateDrmRootKeySuccess,
+  updateDrmRootKeyFail,
 } = detailSlice.actions;
+
 export default detailSlice.reducer;
