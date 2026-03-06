@@ -15,7 +15,6 @@ import {
   resetDrmAllowIpResult,
 } from "@/store/reduxStore/detail/reducer";
 
-// ===== IP 검증 (single ipv4 + CIDR) =====
 const isValidIpv4 = (ip) => {
   const parts = (ip || "").trim().split(".");
   if (parts.length !== 4) return false;
@@ -25,6 +24,7 @@ const isValidIpv4 = (ip) => {
     return n >= 0 && n <= 255;
   });
 };
+
 const isValidCidr = (value) => {
   const v = (value || "").trim();
   const [ip, mask] = v.split("/");
@@ -34,13 +34,22 @@ const isValidCidr = (value) => {
   const m = Number(mask);
   return m >= 0 && m <= 32;
 };
+
 const normalize = (v) => (v || "").trim();
+
+/** ✅ 조회된 IP를 4단락(가로 4열)으로 분배 */
+const splitIntoColumns = (list, columnCount = 4) => {
+  const cols = Array.from({ length: columnCount }, () => []);
+  list.forEach((item, index) => {
+    cols[index % columnCount].push(item);
+  });
+  return cols;
+};
 
 const DrmAllowIpSection = ({ svcId }) => {
   const dispatch = useDispatch();
   const { addToast } = useToast();
 
-  // list는 serviceDetail에 붙여서(원본 구조 유지)
   const serviceDetail =
     useSelector((state) => state.get("detail"))?.detail?.serviceDetail || {};
   const allowIps = serviceDetail?.drmAllowIps || [];
@@ -50,27 +59,20 @@ const DrmAllowIpSection = ({ svcId }) => {
   const fetchLoading = drmAllowIpState?.fetchLoading || false;
   const requestLoading = drmAllowIpState?.requestLoading || false;
   const success = drmAllowIpState?.success || false;
-  const error = drmAllowIpState?.error; // {code,status,message}
+  const error = drmAllowIpState?.error;
   const lastAction = drmAllowIpState?.lastAction;
 
-  // input
   const [newIp, setNewIp] = useState("");
-
-  // ✅ row 단위 edit (다른 row 영향 방지)
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState("");
-
-  // delete confirm
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, row: null });
 
-  // tempId 생성용
   const tempSeqRef = useRef(0);
 
   useEffect(() => {
     dispatch(fetchDrmAllowIpList({ svcId }));
   }, [svcId]);
 
-  // ✅ 토스트는 UI에서 처리
   useEffect(() => {
     if (success) {
       if (lastAction === "add") addToast("허용 IP가 추가되었습니다.", "success");
@@ -79,7 +81,6 @@ const DrmAllowIpSection = ({ svcId }) => {
       dispatch(resetDrmAllowIpResult());
     }
     if (error) {
-      // 에러 코드별 메세지
       if (error.code === "DUPLICATE") {
         addToast("이미 등록된 허용 IP입니다.", "warning");
       } else {
@@ -112,10 +113,8 @@ const DrmAllowIpSection = ({ svcId }) => {
     const v = normalize(newIp);
     const valid = validate(v);
     if (!valid.ok) return addToast(valid.msg, "warning");
-
     if (isDuplicate(v)) return addToast("이미 등록된 허용 IP입니다.", "warning");
 
-    // ✅ optimistic tempId
     tempSeqRef.current += 1;
     const tempId = `tmp-${Date.now()}-${tempSeqRef.current}`;
 
@@ -142,7 +141,6 @@ const DrmAllowIpSection = ({ svcId }) => {
     const prev = allowIps.find((r) => r.id === editingId)?.ip;
 
     dispatch(updateDrmAllowIp({ svcId, id: editingId, ip: v, prevIp: prev }));
-
     setEditingId(null);
     setEditingValue("");
   }, [editingValue, editingId, svcId, validate, isDuplicate, allowIps]);
@@ -157,7 +155,6 @@ const DrmAllowIpSection = ({ svcId }) => {
 
     dispatch(deleteDrmAllowIp({ svcId, id: row.id, backup: row }));
 
-    // 삭제하는 row가 편집중이면 편집 종료
     if (editingId === row.id) onCancelEdit();
     setDeleteConfirm({ open: false, row: null });
   }, [deleteConfirm, svcId, editingId, onCancelEdit]);
@@ -169,6 +166,62 @@ const DrmAllowIpSection = ({ svcId }) => {
     if (isDuplicate(v)) return false;
     return true;
   }, [newIp, isDuplicate]);
+
+  /** ✅ 4단락 데이터 */
+  const columns = useMemo(() => splitIntoColumns(allowIps, 4), [allowIps]);
+
+  const renderRow = (row) => {
+    const isEditing = editingId === row.id;
+
+    return (
+      <div key={row.id} style={{ padding: "10px 0" }}>
+        <Division flex={true} gap={10} alignItems={"center"}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {isEditing ? (
+              <Input
+                value={editingValue}
+                onChange={(e) => setEditingValue(e.target.value)}
+                maxLength={100}
+                maxWidth={220}
+              />
+            ) : (
+              <div style={{ wordBreak: "break-all", opacity: row.isTemp ? 0.6 : 1 }}>
+                {row.ip}
+                {row.isTemp ? " (저장중...)" : ""}
+              </div>
+            )}
+          </div>
+
+          {!isEditing ? (
+            <Division flex={true} gap={4} justifyContent={"center"}>
+              <Buttons.IconEdit
+                onClick={() => onStartEdit(row)}
+                disabled={requestLoading || row.isTemp}
+              />
+              <Buttons.IconDeleteRed
+                onClick={() => openDelete(row)}
+                disabled={requestLoading || row.isTemp}
+              />
+            </Division>
+          ) : (
+            <Division flex={true} gap={4} justifyContent={"center"}>
+              <Buttons.IconSave
+                onClick={onSaveEdit}
+                disabled={requestLoading}
+              />
+              <Buttons.IconCancel
+                onClick={onCancelEdit}
+                disabled={requestLoading}
+              />
+            </Division>
+          )}
+        </Division>
+
+        {/* ✅ 전체 border X / row 값 있을 때만 아래 line */}
+        <div style={{ borderBottom: "1px solid #DDDDDD", marginTop: 10 }} />
+      </div>
+    );
+  };
 
   return (
     <div>
@@ -194,54 +247,20 @@ const DrmAllowIpSection = ({ svcId }) => {
 
       <Divide top={10} bottom={0} $border={false} />
 
-      {/* list */}
-      <div>
-        {fetchLoading ? (
-          <div style={{ fontSize: 13, opacity: 0.7, padding: "8px 0" }}>조회 중...</div>
-        ) : allowIps.length === 0 ? (
-          <div style={{ fontSize: 13, opacity: 0.7, padding: "8px 0" }}>등록된 허용 IP가 없습니다.</div>
-        ) : (
-          allowIps.map((row) => {
-            const isEditing = editingId === row.id;
-            return (
-              <div key={row.id} style={{ padding: "10px 0" }}>
-                <Division flex={true} gap={10} alignItems={"center"}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    {isEditing ? (
-                      <Input
-                        value={editingValue}
-                        onChange={(e) => setEditingValue(e.target.value)}
-                        maxLength={100}
-                        maxWidth={350}
-                      />
-                    ) : (
-                      <div style={{ wordBreak: "break-all", opacity: row.isTemp ? 0.6 : 1 }}>
-                        {row.ip}
-                        {row.isTemp ? " (저장중...)" : ""}
-                      </div>
-                    )}
-                  </div>
-
-                  {!isEditing ? (
-                    <Division flex={true} gap={4} justifyContent={"center"}>
-                      <Buttons.IconEdit onClick={() => onStartEdit(row)} disabled={requestLoading || row.isTemp} />
-                      <Buttons.IconDeleteRed onClick={() => openDelete(row)} disabled={requestLoading || row.isTemp} />
-                    </Division>
-                  ) : (
-                    <Division flex={true} gap={4} justifyContent={"center"}>
-                      <Buttons.IconSave onClick={onSaveEdit} disabled={requestLoading} />
-                      <Buttons.IconCancel onClick={onCancelEdit} disabled={requestLoading} />
-                    </Division>
-                  )}
-                </Division>
-
-                {/* ✅ 값 있을 때만 ip 아래 bottom line */}
-                <div style={{ borderBottom: "1px solid #DDDDDD", marginTop: 10 }} />
-              </div>
-            );
-          })
-        )}
-      </div>
+      {fetchLoading ? (
+        <div style={{ fontSize: 13, opacity: 0.7, padding: "8px 0" }}>조회 중...</div>
+      ) : allowIps.length === 0 ? (
+        <div style={{ fontSize: 13, opacity: 0.7, padding: "8px 0" }}>등록된 허용 IP가 없습니다.</div>
+      ) : (
+        /** ✅ 여기서 4단락 렌더링 */
+        <Division flex={true} gap={20} alignItems={"flex-start"}>
+          {columns.map((col, colIdx) => (
+            <div key={colIdx} style={{ flex: 1, minWidth: 0 }}>
+              {col.map(renderRow)}
+            </div>
+          ))}
+        </Division>
+      )}
 
       <Confirm
         open={deleteConfirm.open}
