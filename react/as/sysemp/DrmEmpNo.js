@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Input, Spin } from 'signlw';
 import Buttons from '@/components/Atoms/Buttons';
 import Division from '@/components/Atoms/Division';
+import { useToast } from '@/utils/ToastProvider';
 import {
   fetchDrmEmpNoInfo,
   verifyDrmEmpNo,
@@ -18,6 +19,7 @@ const VERIFY_STATUS = {
 
 const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
   const dispatch = useDispatch();
+  const { addToast } = useToast();
 
   const detailState = useSelector((state) => state.get('detail')) || {};
   const drmEmpNoState = detailState?.drmEmpNo || {};
@@ -37,18 +39,18 @@ const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
   const authCd = info?.authCd || selectedKey?.authCd;
   const subscriptionStatus = info?.subscriptionStatus || null;
 
-  const isVisible = section?.visible && authCd === 'SYS';
+  const isVisible = section?.visible || authCd === 'SYS';
   const isEditable = !!section?.editable;
 
   useEffect(() => {
     dispatch(resetDrmEmpNoResult());
 
-    if (keyId && svcId && authCd === 'SYS') {
+    if (keyId && svcId) {
       dispatch(fetchDrmEmpNoInfo({ svcId, keyId }));
     } else {
       setInputEmpNo('');
     }
-  }, [dispatch, svcId, keyId, authCd]);
+  }, [dispatch, svcId, keyId]);
 
   useEffect(() => {
     if (section?.value) {
@@ -60,16 +62,29 @@ const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
 
   const verifyMessage = useMemo(() => {
     const status = result?.status;
-    if (status === VERIFY_STATUS.VALID) return '유효한 시스템 사번입니다.';
-    if (status === VERIFY_STATUS.DUPLICATED) return '이미 사용 중인 시스템 사번입니다.';
-    if (status === VERIFY_STATUS.INVALID) return '유효하지 않은 시스템 사번입니다.';
-    if (error?.message) return error.message;
+
+    if (status === VERIFY_STATUS.VALID) {
+      return '유효한 시스템 사번입니다.';
+    }
+
+    if (status === VERIFY_STATUS.DUPLICATED) {
+      return '이미 사용 중인 시스템 사번입니다.';
+    }
+
+    if (status === VERIFY_STATUS.INVALID) {
+      return '유효하지 않은 시스템 사번입니다.';
+    }
+
+    if (error?.message) {
+      return error.message;
+    }
+
     return '';
   }, [result, error]);
 
   const canVerify = useMemo(() => {
-    return !!svcId && !!keyId && isEditable && !!inputEmpNo;
-  }, [svcId, keyId, isEditable, inputEmpNo]);
+    return !!svcId && !!keyId && !!inputEmpNo;
+  }, [svcId, keyId, inputEmpNo]);
 
   const canRequestSubscribe = useMemo(() => {
     return (
@@ -86,7 +101,35 @@ const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
   };
 
   const handleVerify = () => {
-    if (!canVerify) return;
+    // 1. 키 선택 안 된 경우
+    if (!selectedKey || !keyId) {
+      addToast('시스템 키를 선택해주세요.', 'warning');
+      return;
+    }
+
+    // 2. SYS 키가 아닌 경우
+    if (selectedKey?.authCd !== 'SYS' && authCd !== 'SYS') {
+      addToast('시스템 키를 선택해주세요.', 'warning');
+      return;
+    }
+
+    // 3. 입력값 없는 경우
+    if (!inputEmpNo) {
+      addToast('시스템 사번을 입력해주세요.', 'warning');
+      return;
+    }
+
+    // 4. X99 prefix 체크
+    if (!inputEmpNo.startsWith('X99')) {
+      addToast('시스템 사번은 X99로 시작해야 합니다.', 'warning');
+      return;
+    }
+
+    // 5. readonly 상태에서는 검증 불가
+    if (!isEditable) {
+      return;
+    }
+
     dispatch(
       verifyDrmEmpNo({
         svcId,
@@ -97,7 +140,31 @@ const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
   };
 
   const handleRequestSubscribe = () => {
-    if (!canRequestSubscribe) return;
+    if (!selectedKey || !keyId) {
+      addToast('시스템 키를 선택해주세요.', 'warning');
+      return;
+    }
+
+    if (selectedKey?.authCd !== 'SYS' && authCd !== 'SYS') {
+      addToast('시스템 키를 선택해주세요.', 'warning');
+      return;
+    }
+
+    if (!inputEmpNo) {
+      addToast('시스템 사번을 입력해주세요.', 'warning');
+      return;
+    }
+
+    if (!inputEmpNo.startsWith('X99')) {
+      addToast('시스템 사번은 X99로 시작해야 합니다.', 'warning');
+      return;
+    }
+
+    if (!canRequestSubscribe) {
+      addToast('시스템 사번 유효성 검사를 먼저 완료해주세요.', 'warning');
+      return;
+    }
+
     dispatch(
       requestDrmSubscribe({
         svcId,
@@ -119,9 +186,11 @@ const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
             <div className="readonly-box">
               {section?.value || '-'}
             </div>
+
             {section?.message && (
               <div className="desc-text">{section.message}</div>
             )}
+
             {(subscriptionStatus === 'APR' || subscriptionStatus === 'NOR') && (
               <Division top={10}>
                 <Buttons.Basic type="grey" disabled>
@@ -172,7 +241,7 @@ const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
               <Buttons.Basic
                 type={canRequestSubscribe ? 'primary' : 'grey'}
                 onClick={handleRequestSubscribe}
-                disabled={!canRequestSubscribe || subscribeLoading}
+                disabled={!isEditable || subscribeLoading}
               >
                 구독 신청
               </Buttons.Basic>
