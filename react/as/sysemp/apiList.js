@@ -1,3 +1,9 @@
+
+apiList에 있는 저장버튼을 눌러서 handleSaveKey를 실행시키면 선택된 키의 authCd가  SYS 키이면 db에서 매핑된 시스템 사번 보여주고 매핑된 시스템 사번 없으면 input란 보여줘서 시스템 사번 작성하고 유효성 검사 버튼 클릭해서 유효성 검사 할 수 있도록 하는건데
+그게 적용안되어있어.
+그리고 처음 detail화면 열 때도 선택된 키의 authCd를 확인하고 SYS면 위 로직 진행하게 해야해
+
+
 import { forwardRef, useContext, useState, useEffect, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useParams, useNavigate } from 'react-router-dom';
