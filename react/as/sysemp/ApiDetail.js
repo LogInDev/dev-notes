@@ -5,6 +5,7 @@ import {
   useMemo,
   Fragment,
   useState,
+  useCallback,
 } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
@@ -26,8 +27,6 @@ import {
   requestSubscribe,
   requestSubscriptionPermission,
   reserveDeleteService,
-
-  // [DRM][NEW]
   fetchDrmEmpNoInfo,
 } from '@/store/reduxStore/detail/reducer';
 import { updateOpenPopup } from '@/store/reduxStore/myRegist/reducer';
@@ -219,6 +218,12 @@ const ApiDetail = () => {
   const [openDeleteReservationModal, setOpenDeleteReservationModal] =
     useState(false);
 
+  // [DRM][FINAL]
+  // 공통 하단 구독신청 버튼 제어용 상태
+  const [drmVerifiedEmpNo, setDrmVerifiedEmpNo] = useState(null);
+  const [canRequestSubscribeForDrm, setCanRequestSubscribeForDrm] =
+    useState(false);
+
   useEffect(() => {
     dispatch(increaseViewCount(svcId));
     return () => {
@@ -250,8 +255,6 @@ const ApiDetail = () => {
     isAdmin,
     hasPermission,
     addToast,
-    navigate,
-    basename,
   ]);
 
   useEffect(() => {
@@ -298,8 +301,11 @@ const ApiDetail = () => {
     }
   }, [dispatch, svcId, selectedKey?.keyId, fetchKeySuccess]);
 
-  // [DRM][NEW] key 선택 시 key 기준 시스템 사번 상태 조회
+  // [DRM][FINAL] key 변경 시 시스템 사번 정보 재조회 + 버튼상태 초기화
   useEffect(() => {
+    setDrmVerifiedEmpNo(null);
+    setCanRequestSubscribeForDrm(false);
+
     if (fetchKeySuccess && selectedKey?.keyId && isDrm) {
       dispatch(fetchDrmEmpNoInfo({ svcId, keyId: selectedKey.keyId }));
     }
@@ -352,6 +358,15 @@ const ApiDetail = () => {
   const handleCloseConfirm = () => {
     setConfirm(defaultConfirm);
   };
+
+  // [DRM][FINAL] 자식 섹션에서 현재 상태를 부모로 올림
+  const handleDrmValidationChange = useCallback(
+    ({ enabled, verifiedEmpNo }) => {
+      setCanRequestSubscribeForDrm(!!enabled);
+      setDrmVerifiedEmpNo(verifiedEmpNo || null);
+    },
+    [],
+  );
 
   const handleOpenConfirm = (type) => {
     if (type === 'requestSubscriptionPermission') {
@@ -462,6 +477,14 @@ const ApiDetail = () => {
   };
 
   const handleRequestSubscribe = () => {
+    if (isDrm && !canRequestSubscribeForDrm) {
+      addToast(
+        "DRM 서비스는 '시스템 계정 사번' 유효성 확인 후 구독 신청 가능합니다.",
+        'warning',
+      );
+      return;
+    }
+
     const targetApiList = apiList.filter((api) =>
       checkedList.includes(api?.apiId),
     );
@@ -471,6 +494,7 @@ const ApiDetail = () => {
         svcId,
         apiList: targetApiList,
         keyId: selectedKey?.keyId,
+        sysEmpNo: isDrm ? drmVerifiedEmpNo || undefined : undefined,
         addToast,
         toastSuccess: intlObj.get(message['store.success.reqSub']),
         toastWarning: intlObj.get(message['store.warning.alreadySub']),
@@ -486,6 +510,7 @@ const ApiDetail = () => {
         svcId,
         apiList,
         keyId: selectedKey?.keyId,
+        sysEmpNo: isDrm ? drmVerifiedEmpNo || undefined : undefined,
         addToast,
         toastSuccess: intlObj.get(message['store.success.cclSub']),
         toastWarning: intlObj.get(message['store.warning.alreadyCcl']),
@@ -656,103 +681,145 @@ const ApiDetail = () => {
                   svcId={svcId}
                   keyId={selectedKey?.keyId}
                   selectedKey={selectedKey}
+                  onValidationChange={handleDrmValidationChange}
                 />
               </Spin>
             </>
           )}
 
-          <Divide $border={false} top={10} bottom={0} />
-
-          <Division flex={true} gap={10} justifyContent={'center'}>
-            <Buttons.Basic type={'line'} onClick={navigateToList}>
-              {intlObj.get(message['store.list'])}
-            </Buttons.Basic>
-
-            {isDeleted === 'APR' ? (
-              <>
-                {isCancelableSubscription && (
-                  <Buttons.Basic
-                    type={'primary'}
-                    onClick={() => handleOpenConfirm('cancelSubscribe')}
-                  >
-                    {intlObj.get(message['store.subCcl'])}
-                  </Buttons.Basic>
-                )}
-
-                {hasPermission || isAdmin ? (
-                  <Buttons.Basic
-                    type={'primary'}
-                    onClick={() => handleOpenConfirm('cancelDeleteReserve')}
-                  >
-                    {intlObj.get(message['store.cancelDelete'])}
-                  </Buttons.Basic>
-                ) : (
-                  <Buttons.Basic type={'primary'} disabled>
-                    {intlObj.get(message['store.toBeEnd'])}
-                  </Buttons.Basic>
-                )}
-              </>
-            ) : isDeleted === 'NOR' ? (
-              <Buttons.Basic type={'primary'} disabled>
-                {intlObj.get(message['store.ended'])}
+          <Divide $border={false} top={20} bottom={0} />
+          <Spin spinning={!isAuthorized || fetchLoading}>
+            <Division flex={true} gap={10} justifyContent={'center'}>
+              <Buttons.Basic type={'line'} onClick={navigateToList}>
+                {intlObj.get(message['store.list'])}
               </Buttons.Basic>
-            ) : (
-              <>
-                {subscriptionPermission !== 'NOTKEY' && (
-                  <>
-                    {!SubscriptionAvailability ? (
-                      subscriptionPermission === 'APR' ? (
-                        <Buttons.Basic type={'primary'} disabled>
-                          {intlObj.get(message['store.pendingPermissionApr'])}
+
+              {isDeleted === 'APR' ? (
+                <>
+                  {isCancelableSubscription && (
+                    <Buttons.Basic
+                      type={
+                        isDrm && !canRequestSubscribeForDrm ? 'grey' : 'primary'
+                      }
+                      onClick={() => handleOpenConfirm('cancelSubscribe')}
+                    >
+                      {intlObj.get(message['store.subCcl'])}
+                    </Buttons.Basic>
+                  )}
+
+                  {hasPermission || isAdmin ? (
+                    <Buttons.Basic
+                      type={
+                        isDrm && !canRequestSubscribeForDrm ? 'grey' : 'primary'
+                      }
+                      onClick={() => handleOpenConfirm('cancelDeleteReserve')}
+                    >
+                      {intlObj.get(message['store.cancelDelete'])}
+                    </Buttons.Basic>
+                  ) : (
+                    <Buttons.Basic
+                      type={
+                        isDrm && !canRequestSubscribeForDrm ? 'grey' : 'primary'
+                      }
+                      disabled
+                    >
+                      {intlObj.get(message['store.toBeEnd'])}
+                    </Buttons.Basic>
+                  )}
+                </>
+              ) : isDeleted === 'NOR' ? (
+                <Buttons.Basic
+                  type={
+                    isDrm && !canRequestSubscribeForDrm ? 'grey' : 'primary'
+                  }
+                  disabled
+                >
+                  {intlObj.get(message['store.ended'])}
+                </Buttons.Basic>
+              ) : (
+                <>
+                  {subscriptionPermission !== 'NOTKEY' && (
+                    <>
+                      {!SubscriptionAvailability ? (
+                        subscriptionPermission === 'APR' ? (
+                          <Buttons.Basic
+                            type={
+                              isDrm && !canRequestSubscribeForDrm
+                                ? 'grey'
+                                : 'primary'
+                            }
+                            disabled
+                          >
+                            {intlObj.get(message['store.pendingPermissionApr'])}
+                          </Buttons.Basic>
+                        ) : (
+                          <Buttons.Basic
+                            type={
+                              isDrm && !canRequestSubscribeForDrm
+                                ? 'grey'
+                                : 'primary'
+                            }
+                            onClick={() =>
+                              handleOpenConfirm('requestSubscriptionPermission')
+                            }
+                          >
+                            {intlObj.get(message['store.subPermissionReq'])}
+                          </Buttons.Basic>
+                        )
+                      ) : isSubscriptionApprovalPending ? (
+                        <Buttons.Basic
+                          type={
+                            isDrm && !canRequestSubscribeForDrm
+                              ? 'grey'
+                              : 'primary'
+                          }
+                          disabled
+                        >
+                          {intlObj.get(message['store.pendingSubApr'])}
+                        </Buttons.Basic>
+                      ) : isSubscribeAll ? (
+                        <Buttons.Basic
+                          type={
+                            isDrm && !canRequestSubscribeForDrm
+                              ? 'grey'
+                              : 'primary'
+                          }
+                          onClick={() => handleOpenConfirm('cancelSubscribe')}
+                        >
+                          {intlObj.get(message['store.subCcl'])}
                         </Buttons.Basic>
                       ) : (
                         <Buttons.Basic
-                          type={'primary'}
-                          onClick={() =>
-                            handleOpenConfirm('requestSubscriptionPermission')
+                          type={
+                            isDrm && !canRequestSubscribeForDrm
+                              ? 'grey'
+                              : 'primary'
                           }
+                          onClick={() => handleOpenConfirm('requestSubscribe')}
                         >
-                          {intlObj.get(message['store.subPermissionReq'])}
+                          {intlObj.get(message['store.subReq'])}
                         </Buttons.Basic>
-                      )
-                    ) : isSubscriptionApprovalPending ? (
-                      <Buttons.Basic type={'primary'} disabled>
-                        {intlObj.get(message['store.pendingSubApr'])}
-                      </Buttons.Basic>
-                    ) : isSubscribeAll ? (
-                      <Buttons.Basic
-                        type={'primary'}
-                        onClick={() => handleOpenConfirm('cancelSubscribe')}
-                      >
-                        {intlObj.get(message['store.subCcl'])}
-                      </Buttons.Basic>
-                    ) : (
-                      <Buttons.Basic
-                        type={'primary'}
-                        onClick={() => handleOpenConfirm('requestSubscribe')}
-                      >
-                        {intlObj.get(message['store.subReq'])}
-                      </Buttons.Basic>
-                    )}
-                  </>
-                )}
+                      )}
+                    </>
+                  )}
 
-                {(hasPermission || isAdmin) && (
-                  <>
-                    <Buttons.Basic type={'primary'} onClick={navigateToUpdate}>
-                      {intlObj.get(message['store.edit'])}
-                    </Buttons.Basic>
-                    <Buttons.Basic
-                      type={'primary'}
-                      onClick={() => handleOpenConfirm('reserveDeleteService')}
-                    >
-                      {intlObj.get(message['store.delete'])}
-                    </Buttons.Basic>
-                  </>
-                )}
-              </>
-            )}
-          </Division>
+                  {(hasPermission || isAdmin) && (
+                    <>
+                      <Buttons.Basic type={'primary'} onClick={navigateToUpdate}>
+                        {intlObj.get(message['store.edit'])}
+                      </Buttons.Basic>
+                      <Buttons.Basic
+                        type={'primary'}
+                        onClick={() => handleOpenConfirm('reserveDeleteService')}
+                      >
+                        {intlObj.get(message['store.delete'])}
+                      </Buttons.Basic>
+                    </>
+                  )}
+                </>
+              )}
+            </Division>
+          </Spin>
 
           <QuickMenu data={quickMenuList} activeKeys={[activeMenuIndex]} />
 
