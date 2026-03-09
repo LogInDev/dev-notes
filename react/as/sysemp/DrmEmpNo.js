@@ -7,7 +7,6 @@ import { useToast } from '@/utils/ToastProvider';
 import {
   fetchDrmEmpNoInfo,
   verifyDrmEmpNo,
-  requestDrmSubscribe,
   resetDrmEmpNoResult,
 } from '@/store/reduxStore/detail/reducer';
 
@@ -17,7 +16,12 @@ const VERIFY_STATUS = {
   INVALID: 'INVALID',
 };
 
-const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
+const DrmEmpNoSection = ({
+  svcId,
+  keyId,
+  selectedKey,
+  onValidationChange,
+}) => {
   const dispatch = useDispatch();
   const { addToast } = useToast();
 
@@ -30,7 +34,6 @@ const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
     verifyLoading = false,
     result = null,
     error = null,
-    subscribeLoading = false,
   } = drmEmpNoState;
 
   const [inputEmpNo, setInputEmpNo] = useState('');
@@ -84,105 +87,132 @@ const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
     return '';
   }, [result, error]);
 
-  const canRequestSubscribe = useMemo(() => {
-    return (
-      !!svcId &&
-      !!keyId &&
-      isEditable &&
-      result?.status === VERIFY_STATUS.VALID
-    );
-  }, [svcId, keyId, isEditable, result?.status]);
-
   const resetVerifyState = useCallback(() => {
     dispatch(resetDrmEmpNoResult());
   }, [dispatch]);
 
-  const handleChangeEmpNo = (e) => {
-    setInputEmpNo(e?.target?.value || '');
-    resetVerifyState();
-  };
-
-  /**
-   * 공통 사전검사
-   * - verify / subscribe 둘 다 동일하게 사용
-   */
-  const validateBeforeAction = useCallback(
-    ({ requireVerified = false } = {}) => {
-      if (!selectedKey || !keyId) {
-        addToast('시스템 키를 선택해주세요.', 'warning');
-        return false;
+  const notifyParentState = useCallback(
+    ({ enabled = false, verifiedEmpNo = null }) => {
+      if (typeof onValidationChange === 'function') {
+        onValidationChange({
+          enabled,
+          verifiedEmpNo,
+        });
       }
-
-      if (authCd !== 'SYS') {
-        addToast('시스템 키를 선택해주세요.', 'warning');
-        return false;
-      }
-
-      if (isReadonlyStatus || !isEditable) {
-        // APR/NOR 등 수정 불가 상태
-        return false;
-      }
-
-      if (!inputEmpNo) {
-        addToast('시스템 사번을 입력해주세요.', 'warning');
-        return false;
-      }
-
-      if (!inputEmpNo.startsWith('X99')) {
-        addToast('시스템 사번은 X99로 시작해야 합니다.', 'warning');
-        return false;
-      }
-
-      if (requireVerified && result?.status !== VERIFY_STATUS.VALID) {
-        addToast('시스템 사번 유효성 검사를 먼저 완료해주세요.', 'warning');
-        return false;
-      }
-
-      return true;
     },
-    [
-      selectedKey,
-      keyId,
-      authCd,
-      isReadonlyStatus,
-      isEditable,
-      inputEmpNo,
-      result?.status,
-      addToast,
-    ],
+    [onValidationChange],
   );
 
-  const handleVerify = () => {
-    if (verifyLoading || subscribeLoading) {
+  useEffect(() => {
+    // 기본 상태: 공통 하단 구독신청 버튼 비활성
+    if (!selectedKey || !keyId) {
+      notifyParentState({
+        enabled: false,
+        verifiedEmpNo: null,
+      });
       return;
     }
 
-    const isValid = validateBeforeAction({ requireVerified: false });
+    // SYS 키가 아니면 비활성
+    if (authCd !== 'SYS') {
+      notifyParentState({
+        enabled: false,
+        verifiedEmpNo: null,
+      });
+      return;
+    }
+
+    // APR / NOR 상태면 비활성
+    if (isReadonlyStatus || !isEditable) {
+      notifyParentState({
+        enabled: false,
+        verifiedEmpNo: null,
+      });
+      return;
+    }
+
+    // VALID일 때만 활성
+    if (result?.status === VERIFY_STATUS.VALID) {
+      notifyParentState({
+        enabled: true,
+        verifiedEmpNo: inputEmpNo,
+      });
+      return;
+    }
+
+    notifyParentState({
+      enabled: false,
+      verifiedEmpNo: null,
+    });
+  }, [
+    selectedKey,
+    keyId,
+    authCd,
+    isReadonlyStatus,
+    isEditable,
+    result?.status,
+    inputEmpNo,
+    notifyParentState,
+  ]);
+
+  const handleChangeEmpNo = (e) => {
+    setInputEmpNo(e?.target?.value || '');
+    resetVerifyState();
+
+    notifyParentState({
+      enabled: false,
+      verifiedEmpNo: null,
+    });
+  };
+
+  const validateBeforeVerify = useCallback(() => {
+    if (!selectedKey || !keyId) {
+      addToast('시스템 키를 선택해주세요.', 'warning');
+      return false;
+    }
+
+    if (authCd !== 'SYS') {
+      addToast('시스템 키를 선택해주세요.', 'warning');
+      return false;
+    }
+
+    if (isReadonlyStatus || !isEditable) {
+      return false;
+    }
+
+    if (!inputEmpNo) {
+      addToast('시스템 사번을 입력해주세요.', 'warning');
+      return false;
+    }
+
+    if (!inputEmpNo.startsWith('X99')) {
+      addToast('시스템 사번은 X99로 시작해야 합니다.', 'warning');
+      return false;
+    }
+
+    return true;
+  }, [
+    selectedKey,
+    keyId,
+    authCd,
+    isReadonlyStatus,
+    isEditable,
+    inputEmpNo,
+    addToast,
+  ]);
+
+  const handleVerify = () => {
+    if (verifyLoading) {
+      return;
+    }
+
+    const isValid = validateBeforeVerify();
     if (!isValid) {
       return;
     }
 
     dispatch(
       verifyDrmEmpNo({
-        svcId,
-        keyId,
-        empNo: inputEmpNo,
-      }),
-    );
-  };
-
-  const handleRequestSubscribe = () => {
-    if (verifyLoading || subscribeLoading) {
-      return;
-    }
-
-    const isValid = validateBeforeAction({ requireVerified: true });
-    if (!isValid) {
-      return;
-    }
-
-    dispatch(
-      requestDrmSubscribe({
         svcId,
         keyId,
         empNo: inputEmpNo,
@@ -198,7 +228,7 @@ const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
     <div className="drm-empno-section">
       <div className="title">시스템 사번</div>
 
-      <Spin spinning={infoLoading || subscribeLoading}>
+      <Spin spinning={infoLoading}>
         {!isEditable ? (
           <>
             <div className="readonly-box">
@@ -207,14 +237,6 @@ const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
 
             {section?.message && (
               <div className="desc-text">{section.message}</div>
-            )}
-
-            {isReadonlyStatus && (
-              <Division top={10}>
-                <Buttons.Basic type="grey" disabled>
-                  구독 신청
-                </Buttons.Basic>
-              </Division>
             )}
           </>
         ) : (
@@ -231,7 +253,7 @@ const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
               <Buttons.Basic
                 type="line"
                 onClick={handleVerify}
-                disabled={verifyLoading || subscribeLoading}
+                disabled={verifyLoading}
               >
                 유효성 검사
               </Buttons.Basic>
@@ -255,16 +277,6 @@ const DrmEmpNoSection = ({ svcId, keyId, selectedKey }) => {
                 {verifyMessage}
               </div>
             )}
-
-            <Division top={10}>
-              <Buttons.Basic
-                type={canRequestSubscribe ? 'primary' : 'grey'}
-                onClick={handleRequestSubscribe}
-                disabled={verifyLoading || subscribeLoading}
-              >
-                구독 신청
-              </Buttons.Basic>
-            </Division>
           </>
         )}
       </Spin>
