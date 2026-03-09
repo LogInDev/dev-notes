@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Input, Spin } from 'signlw';
-import Buttons from '@/components/Atoms/Buttons';
 import Division from '@/components/Atoms/Division';
+import Buttons from '@/components/Atoms/Buttons';
 import { useToast } from '@/utils/ToastProvider';
 import {
   fetchDrmEmpNoInfo,
@@ -42,8 +42,9 @@ const DrmEmpNoSection = ({
   const authCd = info?.authCd || selectedKey?.authCd || null;
   const subscriptionStatus = info?.subscriptionStatus || null;
 
-  const isVisible = section?.visible || authCd === 'SYS';
-  const isEditable = !!section?.editable;
+  // ✅ DRM이면 항상 섹션은 보인다고 가정
+  const hasMappedEmpNo = !!section?.value;
+  const isSysKey = authCd === 'SYS';
   const isReadonlyStatus =
     subscriptionStatus === 'APR' || subscriptionStatus === 'NOR';
 
@@ -58,12 +59,12 @@ const DrmEmpNoSection = ({
   }, [dispatch, svcId, keyId]);
 
   useEffect(() => {
-    if (section?.value) {
+    if (hasMappedEmpNo) {
       setInputEmpNo(section.value);
     } else {
       setInputEmpNo('');
     }
-  }, [section?.value]);
+  }, [hasMappedEmpNo, section?.value]);
 
   const verifyMessage = useMemo(() => {
     const status = result?.status;
@@ -87,10 +88,6 @@ const DrmEmpNoSection = ({
     return '';
   }, [result, error]);
 
-  const resetVerifyState = useCallback(() => {
-    dispatch(resetDrmEmpNoResult());
-  }, [dispatch]);
-
   const notifyParentState = useCallback(
     ({ enabled = false, verifiedEmpNo = null }) => {
       if (typeof onValidationChange === 'function') {
@@ -104,34 +101,25 @@ const DrmEmpNoSection = ({
   );
 
   useEffect(() => {
-    // 기본 상태: 공통 하단 구독신청 버튼 비활성
+    // 기본값: 비활성
     if (!selectedKey || !keyId) {
-      notifyParentState({
-        enabled: false,
-        verifiedEmpNo: null,
-      });
+      notifyParentState({ enabled: false, verifiedEmpNo: null });
       return;
     }
 
-    // SYS 키가 아니면 비활성
-    if (authCd !== 'SYS') {
-      notifyParentState({
-        enabled: false,
-        verifiedEmpNo: null,
-      });
+    // SYS 키 아니면 공통 구독신청 버튼 비활성
+    if (!isSysKey) {
+      notifyParentState({ enabled: false, verifiedEmpNo: null });
       return;
     }
 
-    // APR / NOR 상태면 비활성
-    if (isReadonlyStatus || !isEditable) {
-      notifyParentState({
-        enabled: false,
-        verifiedEmpNo: null,
-      });
+    // APR/NOR이면 비활성
+    if (isReadonlyStatus) {
+      notifyParentState({ enabled: false, verifiedEmpNo: null });
       return;
     }
 
-    // VALID일 때만 활성
+    // VALID인 경우만 활성
     if (result?.status === VERIFY_STATUS.VALID) {
       notifyParentState({
         enabled: true,
@@ -140,43 +128,50 @@ const DrmEmpNoSection = ({
       return;
     }
 
-    notifyParentState({
-      enabled: false,
-      verifiedEmpNo: null,
-    });
+    notifyParentState({ enabled: false, verifiedEmpNo: null });
   }, [
     selectedKey,
     keyId,
-    authCd,
+    isSysKey,
     isReadonlyStatus,
-    isEditable,
     result?.status,
     inputEmpNo,
     notifyParentState,
   ]);
 
   const handleChangeEmpNo = (e) => {
-    setInputEmpNo(e?.target?.value || '');
-    resetVerifyState();
+    if (!isSysKey) {
+      addToast('시스템 타입 키로 변경해주세요.', 'warning');
+      return;
+    }
 
-    notifyParentState({
-      enabled: false,
-      verifiedEmpNo: null,
-    });
+    if (isReadonlyStatus) {
+      return;
+    }
+
+    setInputEmpNo(e?.target?.value || '');
+    dispatch(resetDrmEmpNoResult());
+    notifyParentState({ enabled: false, verifiedEmpNo: null });
+  };
+
+  const handleClickInput = () => {
+    if (!isSysKey) {
+      addToast('시스템 타입 키로 변경해주세요.', 'warning');
+    }
   };
 
   const validateBeforeVerify = useCallback(() => {
     if (!selectedKey || !keyId) {
-      addToast('시스템 키를 선택해주세요.', 'warning');
+      addToast('시스템 타입 키로 변경해주세요.', 'warning');
       return false;
     }
 
-    if (authCd !== 'SYS') {
-      addToast('시스템 키를 선택해주세요.', 'warning');
+    if (!isSysKey) {
+      addToast('시스템 타입 키로 변경해주세요.', 'warning');
       return false;
     }
 
-    if (isReadonlyStatus || !isEditable) {
+    if (isReadonlyStatus) {
       return false;
     }
 
@@ -194,9 +189,8 @@ const DrmEmpNoSection = ({
   }, [
     selectedKey,
     keyId,
-    authCd,
+    isSysKey,
     isReadonlyStatus,
-    isEditable,
     inputEmpNo,
     addToast,
   ]);
@@ -220,19 +214,16 @@ const DrmEmpNoSection = ({
     );
   };
 
-  if (!isVisible) {
-    return null;
-  }
-
   return (
     <div className="drm-empno-section">
       <div className="title">시스템 사번</div>
 
       <Spin spinning={infoLoading}>
-        {!isEditable ? (
+        {/* ✅ 매핑된 시스템 사번이 있을 때만 read-only 표시 */}
+        {hasMappedEmpNo ? (
           <>
             <div className="readonly-box">
-              {section?.value || '-'}
+              {section?.value}
             </div>
 
             {section?.message && (
@@ -245,9 +236,12 @@ const DrmEmpNoSection = ({
               <Input
                 value={inputEmpNo}
                 onChange={handleChangeEmpNo}
+                onClick={handleClickInput}
+                onFocus={handleClickInput}
                 placeholder="시스템 사번 입력"
                 maxLength={30}
                 style={{ width: 280 }}
+                readOnly={!isSysKey}
               />
 
               <Buttons.Basic
