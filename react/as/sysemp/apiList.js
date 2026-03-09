@@ -1,15 +1,10 @@
-
-apiList에 있는 저장버튼을 눌러서 handleSaveKey를 실행시키면 선택된 키의 authCd가  SYS 키이면 db에서 매핑된 시스템 사번 보여주고 매핑된 시스템 사번 없으면 input란 보여줘서 시스템 사번 작성하고 유효성 검사 버튼 클릭해서 유효성 검사 할 수 있도록 하는건데
-그게 적용안되어있어.
-그리고 처음 detail화면 열 때도 선택된 키의 authCd를 확인하고 SYS면 위 로직 진행하게 해야해
-
-
 import { forwardRef, useContext, useState, useEffect, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useParams, useNavigate } from 'react-router-dom';
 import { produce } from 'immer';
 import {
   fetchApiList,
+  fetchDrmEmpNoInfo,
   updateField as updateListField,
 } from '@/store/reduxStore/detail/reducer';
 import { updateField as updateKeyField } from '@/store/reduxStore/keySelect/reducer';
@@ -34,10 +29,8 @@ import QosForm from '@/components/Organisms/QosForm';
 import TestConsole from './TestConsole';
 
 const ensureProtocol = (url) => {
-  // 정규 표현식을 사용하여 URL이 http 또는 https로 시작하는지 확인
   const regex = /^(http:\/\/|https:\/\/)/i;
   if (!regex.test(url)) {
-    // 프로토콜이 없으면 http://를 붙임
     return `http://${url}`;
   }
   return url;
@@ -70,7 +63,6 @@ const ApiList = forwardRef((_, ref) => {
   ];
 
   const { addToast } = useToast();
-
   const { svcId } = useParams();
 
   const dispatch = useDispatch();
@@ -81,10 +73,12 @@ const ApiList = forwardRef((_, ref) => {
   const apiList = listState?.apiList || [];
   const checkedList = listState?.checkedList || [];
   const fetchApiListLoading = listState?.fetchApiListLoading || false;
+
   const isSubscriptionApprovalPending = useMemo(
     () => apiList.some((api) => api?.subStat === 'APR'),
     [apiList],
   );
+
   const checkableApiList = useMemo(
     () =>
       apiList.filter(
@@ -93,6 +87,7 @@ const ApiList = forwardRef((_, ref) => {
       ),
     [apiList],
   );
+
   const isCheckedAll = useMemo(
     () => checkedList.length === checkableApiList.length,
     [checkableApiList, checkedList],
@@ -101,13 +96,13 @@ const ApiList = forwardRef((_, ref) => {
   const detailState = useSelector((state) => state.get('detail'))?.detail || {};
   const serviceDetail = detailState?.serviceDetail || {};
   const serviceType = serviceDetail?.svcType;
+  const isDrm = serviceType === 'DRM';
 
   const permissionState =
     useSelector((state) => state.get('detail'))?.permission || {};
   const subscriptionPermission =
     permissionState?.subscriptionPermission || 'NON';
 
-  // 구독 가능 여부 (전체 이용 가능 API 이거나 구독 권한이 있는 경우)
   const SubscriptionAvailability = useMemo(
     () =>
       subscriptionPermission !== 'NOTKEY' &&
@@ -119,63 +114,81 @@ const ApiList = forwardRef((_, ref) => {
   const keyList = keyState?.keyList || [];
   const fetchKeySuccess = keyState?.fetchSuccess || false;
   const selectedKeyId = keyState?.selectedKeyId;
+
   const selectedKey = useMemo(
     () => keyList.find((key) => key.keyId === selectedKeyId) || keyList[0],
     [keyList, selectedKeyId],
   );
 
-  const [openKeyPopup, setOpenKeyPopup] = useState(false); //키 팝업
+  const [openKeyPopup, setOpenKeyPopup] = useState(false);
   const [pageSize, setPageSize] = useState(defaultPageSize);
 
-  // API 목록 조회
   useEffect(() => {
-    if (fetchKeySuccess)
-      dispatch(fetchApiList({ svcId, keyId: selectedKey?.keyId }));
-  }, [svcId, selectedKey, fetchKeySuccess]);
+    if (fetchKeySuccess && selectedKey?.keyId) {
+      dispatch(fetchApiList({ svcId, keyId: selectedKey.keyId }));
 
-  // Redux State Update
+      // [DRM][ADDED]
+      // detail 진입 후 현재 선택된 key가 이미 존재하면
+      // DRM 시스템 사번 상태도 같이 조회
+      if (isDrm) {
+        dispatch(fetchDrmEmpNoInfo({ svcId, keyId: selectedKey.keyId }));
+      }
+    }
+  }, [dispatch, svcId, selectedKey?.keyId, fetchKeySuccess, isDrm]);
+
   const handleUpdateListState = (field, updatedData) => {
     dispatch(updateListField({ field: `list.${field}`, value: updatedData }));
   };
 
-  // Redux State Update
   const handleUpdateKeyState = (field, updatedData) => {
     dispatch(updateKeyField({ field: `${field}`, value: updatedData }));
   };
 
-  //키 모달 버튼 클릭 시 핸들링
   const handleOpenKeyPopup = () => {
     setOpenKeyPopup(true);
   };
 
-  // API Key 신청 버튼 클릭시 이동 핸들링
   const handleOpenKeyPage = () => {
     navigate(`${getRoutePath(basename, '/my/keys')}`);
   };
 
-  // 키 모달 선택 완료 시 핸들링
+  // [DRM][CHANGED]
+  // key 저장 시 API 목록 + DRM 시스템 사번 상태 같이 재조회
   const handleSaveKey = (updatedData) => {
-    localStorage.setItem('apiStoreKey', updatedData?.keyId);
-    handleUpdateKeyState('selectedKeyId', updatedData?.keyId);
+    const nextKeyId = updatedData?.keyId;
+
+    if (!nextKeyId) {
+      setOpenKeyPopup(false);
+      return;
+    }
+
+    localStorage.setItem('apiStoreKey', nextKeyId);
+    handleUpdateKeyState('selectedKeyId', nextKeyId);
+
+    dispatch(fetchApiList({ svcId, keyId: nextKeyId }));
+
+    if (isDrm) {
+      dispatch(fetchDrmEmpNoInfo({ svcId, keyId: nextKeyId }));
+    }
+
     setOpenKeyPopup(false);
   };
 
-  // 체크박스 전체 체크 시 핸들링
   const handleCheckAll = (checked) => {
     if (checked) {
-      const checkedList = [];
+      const nextCheckedList = [];
       for (const api of apiList) {
         const subStat = api?.subStat;
-        if (subStat === 'N' || subStat === 'REJ' || subStat === 'CCL')
-          checkedList.push(api.apiId);
+        if (subStat === 'N' || subStat === 'REJ' || subStat === 'CCL') {
+          nextCheckedList.push(api.apiId);
+        }
       }
-      handleUpdateListState('checkedList', checkedList);
+      handleUpdateListState('checkedList', nextCheckedList);
     } else {
       handleUpdateListState('checkedList', []);
     }
   };
 
-  // 단일 체크박스 체크 시 핸들링
   const handleCheck = (checked, id) => {
     if (checked) {
       const nextData = produce(checkedList, (draft) => {
@@ -183,14 +196,13 @@ const ApiList = forwardRef((_, ref) => {
       });
       handleUpdateListState('checkedList', nextData);
     } else {
-      const nextData = produce(checkedList, (draft) => {
-        return draft.filter((data) => data !== id);
-      });
+      const nextData = produce(checkedList, (draft) =>
+        draft.filter((data) => data !== id),
+      );
       handleUpdateListState('checkedList', nextData);
     }
   };
 
-  // 클립보드 복사 시 핸들링
   const handleCopyText = (text) => {
     const textArea = document.createElement('textarea');
     textArea.value = text;
@@ -213,24 +225,22 @@ const ApiList = forwardRef((_, ref) => {
       sorter: (a, b, order) => compareString(a?.path, b?.path, order),
       render: (text, record) => {
         return (
-          <>
-            <Division flex={true} gap={10} alignItems={'center'}>
-              <Method method={record.method} />
-              <Ellipsis>{text}</Ellipsis>
-              <Buttons.IconCopy
-                onClick={(e) => {
-                  // TODO: staging DB 가 따로 없는 관계로 staging 인 경우 Gateway Domain 하드코딩, 추후 변경 예정
-                  const environment = process.env.VITE_APP_ENV;
-                  const server =
-                    environment === 'staging'
-                      ? `${getStgGatewayUrl(serviceType)}${getGatewayPrefix(serviceType, svcId)}`
-                      : `${record?.gwDomain}${getGatewayPrefix(serviceType, svcId)}`;
-                  e.stopPropagation();
-                  handleCopyText(`${ensureProtocol(server)}${text}`);
-                }}
-              />
-            </Division>
-          </>
+          <Division flex={true} gap={10} alignItems={'center'}>
+            <Method method={record.method} />
+            <Ellipsis>{text}</Ellipsis>
+            <Buttons.IconCopy
+              onClick={(e) => {
+                const environment = process.env.VITE_APP_ENV;
+                const server =
+                  environment === 'staging'
+                    ? `${getStgGatewayUrl(serviceType)}${getGatewayPrefix(serviceType, svcId)}`
+                    : `${record?.gwDomain}${getGatewayPrefix(serviceType, svcId)}`;
+
+                e.stopPropagation();
+                handleCopyText(`${ensureProtocol(server)}${text}`);
+              }}
+            />
+          </Division>
         );
       },
       onCell: () => ({
@@ -291,7 +301,7 @@ const ApiList = forwardRef((_, ref) => {
   const tableData = useMemo(
     () =>
       produce(apiList, (draft) => {
-        draft.map((value, index) => {
+        draft.forEach((value, index) => {
           const api = apiList[index];
           const info = api?.info;
           const parameters = info?.parameters || [];
@@ -302,7 +312,6 @@ const ApiList = forwardRef((_, ref) => {
             api?.gwDomain !== null &&
             serviceType !== undefined;
 
-          // TODO: staging DB 가 따로 없는 관계로 staging 인 경우 Gateway Domain 하드코딩, 추후 변경 예정
           const environment = process.env.VITE_APP_ENV;
           const server =
             environment === 'staging'
@@ -310,17 +319,15 @@ const ApiList = forwardRef((_, ref) => {
               : `${api?.gwDomain}${getGatewayPrefix(serviceType, svcId)}`;
 
           value.expandedArea = (
-            <>
-              <TestConsole
-                server={ensureProtocol(server)}
-                path={api?.path}
-                method={api?.method}
-                excutable={excutable}
-                parameters={parameters}
-                requestBody={requestBody}
-                apiKey={selectedKey}
-              />
-            </>
+            <TestConsole
+              server={ensureProtocol(server)}
+              path={api?.path}
+              method={api?.method}
+              excutable={excutable}
+              parameters={parameters}
+              requestBody={requestBody}
+              apiKey={selectedKey}
+            />
           );
         });
       }),
@@ -343,9 +350,9 @@ const ApiList = forwardRef((_, ref) => {
           )
         }
       />
+
       {serviceDetail?.gwDomain && (
         <Division flex={true} gap={20} alignItems={'center'} mb={20}>
-          {/* TODO: staging DB 가 따로 없는 관계로 staging 인 경우 Gateway Domain 하드코딩, 추후 변경 예정 */}
           <Division.Title>API G/W Domain</Division.Title>
           <Division.SubTitle>
             {process.env.VITE_APP_ENV === 'staging'
@@ -354,6 +361,7 @@ const ApiList = forwardRef((_, ref) => {
           </Division.SubTitle>
         </Division>
       )}
+
       <CollapseTable
         loading={!fetchKeySuccess || fetchApiListLoading}
         rowKey={(record) =>
@@ -374,6 +382,7 @@ const ApiList = forwardRef((_, ref) => {
           />
         }
       />
+
       <KeyModal
         open={openKeyPopup}
         onOk={(updatedData) => {
