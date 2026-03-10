@@ -1,339 +1,151 @@
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DataAccessException;
-import org.springframework.dao.DuplicateKeyException;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-
-import static com.skhynix.hcp.svc.api.store.exception.ResponseCode.*;
-
-@Slf4j
-@Service
-@RequiredArgsConstructor
-public class ApiSubscriptionService {
-
-    private final HcpApiSubMapper hcpApiSubMapper;
-    private final HcpApiSvcMapper hcpApiSvcMapper;
-    private final HcpApiKeyMapper hcpApiKeyMapper;
-    private final HcpApiTokenMapper hcpApiTokenMapper;
-    private final HcpApiQosService hcpApiQosService;
-    private final CommonService commonService;
-    private final CtsService ctsService;
-
-    @Value("${hcp.application.env}")
-    private String hcpApplicationEnv;
-
-    /**
-     * 구독 신청
+/**
+     * 구독 승인
+     *
+     * @param hcpApiSubList
+     * @param empNo
+     * @param account
+     * @throws Exception
      */
     @Transactional
-    public void subscribe(List<HcpApiSub> hcpApiSubList, String empNo) {
-        if (CollectionUtils.isEmpty(hcpApiSubList)) {
-            throw new RestException(BAD_REQUEST, "구독 신청할 API가 없습니다.");
-        }
-
-        Map<Long, String> svcTypeCacheMap = new HashMap<>();
+    public void confirm(List<HcpApiSub> hcpApiSubList, String empNo, Account account) throws Exception {
         Set<Long> svcIds = new HashSet<>();
-
-        // 1. 사전 검증 + DRM 매핑 처리
-        for (HcpApiSub sub : hcpApiSubList) {
-            sub.setEmpNo(empNo);
-
-            Long svcId = sub.getSvcId();
-            svcIds.add(svcId);
-
-            String svcType = svcTypeCacheMap.computeIfAbsent(
-                    svcId,
-                    hcpApiSvcMapper::getHcpSvcType
-            );
-
-            if ("DRM".equalsIgnoreCase(svcType)) {
-                validateDrmSubscriptionTarget(sub);
-                mergeSysEmpNoMapping(sub);
-            }
-        }
-
-        // 2. 구독 신청
-        for (HcpApiSub sub : hcpApiSubList) {
-            hcpApiSubMapper.mergeApiSub(sub);
-        }
-
-        // 3. 이력 저장
-        for (Long svcId : svcIds) {
-            commonService.actionHistory(svcId, "SRE", empNo, "구독 신청이 완료되었습니다.");
-        }
-    }
-
-    /**
-     * 구독 해제
-     */
-    @Transactional
-    public void unsubscribe(List<HcpApiSub> hcpApiSubList, String empNo) {
-        if (CollectionUtils.isEmpty(hcpApiSubList)) {
-            throw new RestException(BAD_REQUEST, "구독 해제할 API가 없습니다.");
-        }
-
-        Map<Long, String> svcTypeCacheMap = new HashMap<>();
-        Set<Long> svcIds = new HashSet<>();
+        Map<Long, String> svcTypeCacheMap = Maps.newHashMap();
 
         int updateCnt = 0;
+        for (HcpApiSub it : hcpApiSubList) {
+            it.setEmpNo(empNo);
+            it.setBeforeSubStatCd("APR");
 
-        for (HcpApiSub sub : hcpApiSubList) {
-            sub.setEmpNo(empNo);
-            sub.setBeforeSubStatCd("NOR");
-
-            Long svcId = sub.getSvcId();
-            Long keyId = sub.getKeyId();
+            long svcId = it.getSvcId();
             svcIds.add(svcId);
-
-            String svcType = svcTypeCacheMap.computeIfAbsent(
-                    svcId,
-                    hcpApiSvcMapper::getHcpSvcType
-            );
-
-            // CTS 해제 처리
+            String svcType = svcTypeCacheMap.computeIfAbsent(svcId, k -> hcpApiSvcMapper.getHcpSvcType(svcId));
             if ("CTS".equalsIgnoreCase(svcType)) {
+                Long keyId = it.getKeyId();
+                // 1. 구독 요청 API 키 정보 조회
                 CtsSubKeyInfo keyInfo = hcpApiTokenMapper.getCtsSubKeyInfo(keyId);
 
                 if (keyInfo == null) {
-                    log.error("CTS keyInfo 없음. keyId={}", keyId);
-                    throw new RestException(BAD_REQUEST, "CTS Key 정보가 없습니다.");
+                    log.error("keyInfo is null - keyId : {}", keyId);
+                    throw new RestException(ResponseCode.BAD_REQUEST, "keyInfo is null");
                 }
 
+                // 2. CTS구독 프로세스
                 try {
-                    ctsService.unSubscriptionCts(keyInfo);
+                    // 3. 기존 구독 여부 확인
+                    boolean checkResult = ctsService.checkAlreadySubscription(keyId);
+                    // 4. 구독중이 아니라면 CTS 구독
+                    if (!checkResult) {
+                        ctsService.subscriptionCts(keyInfo);
+                    }
+                    // 5. 이미 구독중이라면 PASS
+                    else {
+                        log.info("already subscribed cts for keyId: {}", hcpApiSubList.get(0).getKeyId());
+                    }
                 } catch (Exception e) {
-                    log.error("CTS 구독 해제 실패. keyId={}", keyId, e);
-                    throw new RestException(INTERNAL_SERVER_ERROR, "CTS 구독 해제에 실패했습니다.");
+                    log.error("cts subscription error! - {}", e.getMessage());
+                    throw new RestException(ResponseCode.INTERNAL_SERVER_ERROR, "cts subscription fail");
                 }
             }
-
-            // 구독 상태 변경
-            updateCnt += hcpApiSubMapper.updateApiSub(sub);
-
-            // DRM 매핑 삭제
-            if ("DRM".equalsIgnoreCase(svcType)) {
-                removeSysEmpNoMapping(sub);
-            }
+            int cnt = hcpApiSubMapper.updateApiSub(it);
+            updateCnt += cnt;
         }
 
-        if (updateCnt == 0) {
-            throw new RestException(BAD_REQUEST, "구독 해제된 API가 없습니다. 잘못된 요청입니다.");
+        // DRM 서비스 타입 구독 시 시스템 사번 매핑
+        HcpApiSub hcpApiSub = hcpApiSubList.get(0);
+        String svcType = hcpApiSvcMapper.getHcpSvcType(hcpApiSub.getSvcId());
+        if("DRM".equalsIgnoreCase(svcType)) {
+            updateIfApiKey(HcpApiKeySys.builder()
+                    .svcId(hcpApiSub.getSvcId())
+                    .keyId(hcpApiSub.getKeyId())
+                    .sysEmpNo(hcpApiSub.getSysEmpNo())
+                    .svcEnv(env.toUpperCase())
+                    .build());
         }
 
-        hcpApiQosService.deleteApiQosByPubIdAndKeyId(hcpApiSubList);
+        if( updateCnt == 0){
+            throw new RestException(ResponseCode.BAD_REQUEST, "구독 승인된 API가 없습니다. 잘못된 요청입니다.");
+        }
 
+        hcpApiQosService.registApiQosWithDefaultBySub(hcpApiSubList);
+
+        String actCd = "SPR";
+        String memo = "구독 신청이 승인되었습니다";
         for (Long svcId : svcIds) {
-            commonService.actionHistory(svcId, "CCL", empNo, "구독 신청이 해제되었습니다.");
-        }
-    }
+            commonService.actionHistory(svcId, actCd, empNo, memo);
 
-    /**
-     * DRM 구독 대상 검증
-     */
-    private void validateDrmSubscriptionTarget(HcpApiSub sub) {
-        if (sub == null) {
-            throw new RestException(BAD_REQUEST, "구독 정보가 없습니다.");
-        }
+            String url = linkUrl + "apps/hcp-web-api-store/api/detail/"+svcId;
+            Map<String, Object> hashMap =Map.of( "svcId", svcId, "keyId", hcpApiSubList.get(0).getKeyId(), "empNo", empNo);
+            List<String> userList = hcpApiMyPageMapper.getMyRegistUserSub(hashMap);
 
-        if (sub.getSvcId() == null || sub.getSvcId() <= 0) {
-            throw new RestException(BAD_REQUEST, "서비스 ID가 유효하지 않습니다.");
-        }
+            List<Map<String, Object>> hcpApiSvcDtl = hcpApiSvcMapper.selectSvcInfDtl(svcId);
+            String serviceName = (String) hcpApiSvcDtl.get(0).get("svcNm");
 
-        if (sub.getKeyId() == null || sub.getKeyId() <= 0) {
-            throw new RestException(BAD_REQUEST, "키 ID가 유효하지 않습니다.");
-        }
+            Map<String, Object> templateHashMap = new HashMap<>();
+            templateHashMap.put("title", "**API Store 구독 신청 결과 알림**");
+            templateHashMap.put("message", serviceName + "의 구독 신청이 승인되었습니다.");
+            templateHashMap.put("message1", "API G/W 에 반영되는데 1~2분 가량 소요됩니다.");
+            for (int i = 0; i < 2; i++) {
+                templateHashMap.put("urlLink", url);
+                if (i == 0) {
+                    templateHashMap.put("userId", "");
+                    String channelId = cubeChannelId;
+                    templateHashMap.put("channelId", channelId);
 
-        if (StringUtils.isBlank(sub.getSysEmpNo())) {
-            throw new RestException(BAD_REQUEST, "시스템 사번이 비어 있습니다.");
-        }
-
-        HcpApiKeyAuth key = hcpApiKeyMapper.findByKeyId(sub.getKeyId());
-        if (key == null) {
-            throw new RestException(NOT_FOUND, "존재하지 않는 키입니다.");
-        }
-
-        if (!"SYS".equalsIgnoreCase(key.getAuthCd())) {
-            throw new RestException(BAD_REQUEST, "시스템 타입 키만 구독 신청할 수 있습니다.");
-        }
-    }
-
-    /**
-     * DRM 시스템 사번 매핑 저장/갱신
-     */
-    private void mergeSysEmpNoMapping(HcpApiSub sub) {
-        HcpApiKeySys param = HcpApiKeySys.builder()
-                .svcId(sub.getSvcId())
-                .keyId(sub.getKeyId())
-                .sysEmpNo(sub.getSysEmpNo())
-                .svcEnv(hcpApplicationEnv)
-                .build();
-
-        try {
-            int affected = hcpApiSvcMapper.mergeSysEmpNo(param);
-            if (affected <= 0) {
-                throw new RestException(INTERNAL_SERVER_ERROR, "시스템 사번 매핑 저장에 실패했습니다.");
+                } else if (i == 1) {
+                    templateHashMap.put("userId", userList.get(0));
+                    templateHashMap.put("channelId", "");
+                }
+                myPageService.notificate(templateHashMap);
             }
-        } catch (DuplicateKeyException e) {
-            log.warn("중복 시스템 사번 매핑. svcId={}, keyId={}, sysEmpNo={}",
-                    sub.getSvcId(), sub.getKeyId(), sub.getSysEmpNo());
-            throw new RestException(CONFLICT, "이미 등록된 시스템 사번입니다.");
-        } catch (DataAccessException e) {
-            log.error("시스템 사번 매핑 DB 오류. svcId={}, keyId={}, sysEmpNo={}",
-                    sub.getSvcId(), sub.getKeyId(), sub.getSysEmpNo(), e);
-            throw new RestException(INTERNAL_SERVER_ERROR, "시스템 사번 매핑 처리 중 DB 오류가 발생했습니다.");
-        }
-    }
-
-    /**
-     * DRM 시스템 사번 매핑 삭제
-     */
-    private void removeSysEmpNoMapping(HcpApiSub sub) {
-        if (sub == null || sub.getSvcId() == null || sub.getKeyId() == null) {
-            throw new RestException(BAD_REQUEST, "시스템 사번 매핑 삭제 대상이 올바르지 않습니다.");
-        }
-
-        try {
-            HcpApiKeySys mapping = hcpApiSvcMapper.findSysEmpNoMapping(
-                    sub.getSvcId(),
-                    sub.getKeyId(),
-                    hcpApplicationEnv
+            commonService.workplaceNotify(
+                    accountUtil.getSiteIdDefaultIfNull(account),
+                    "[승인]" + serviceName+ "의 구독 신청이 승인되었습니다.",
+                    "[Approve]" + serviceName+ " subscription approved",
+                    "[Approve]" + serviceName+ " subscription approved",
+                    NOTI_API_DETAIL_CONTENTS, NOTI_API_DETAIL_CONTENTS, NOTI_API_DETAIL_CONTENTS,
+                    "API G/W 에 반영되는데 1~2분 가량 소요됩니다.",
+                    "API G/W Adapted 1~2 minutes later",
+                    "API G/W Adapted 1~2 minutes later",
+                    url,
+                    userList
             );
 
-            if (mapping == null || StringUtils.isBlank(mapping.getSysEmpNo())) {
-                log.info("삭제할 시스템 사번 매핑 없음. svcId={}, keyId={}", sub.getSvcId(), sub.getKeyId());
-                return;
-            }
-
-            // I/F 테이블 키 정보 초기화
-            hcpApiSvcMapper.deleteIFApiKey(mapping.getSysEmpNo());
-
-            // HCP_API_KEY_SYS 삭제
-            hcpApiSvcMapper.deleteSysEmpNo(
-                    mapping.getSvcId(),
-                    mapping.getKeyId(),
-                    mapping.getSysEmpNo(),
-                    mapping.getSvcEnv()
-            );
-        } catch (DataAccessException e) {
-            log.error("시스템 사번 매핑 삭제 실패. svcId={}, keyId={}", sub.getSvcId(), sub.getKeyId(), e);
-            throw new RestException(INTERNAL_SERVER_ERROR, "시스템 사번 매핑 삭제 중 DB 오류가 발생했습니다.");
         }
     }
-}
 
-import org.apache.ibatis.annotations.Param;
-
-public interface HcpApiSvcMapper {
-
-    String getHcpSvcType(Long svcId);
-
-    int mergeSysEmpNo(HcpApiKeySys hcpApiKeySys);
-
-    HcpApiKeySys findSysEmpNoMapping(
-            @Param("svcId") Long svcId,
-            @Param("keyId") Long keyId,
-            @Param("svcEnv") String svcEnv
-    );
-
-    int deleteSysEmpNo(
-            @Param("svcId") Long svcId,
-            @Param("keyId") Long keyId,
-            @Param("sysEmpNo") String sysEmpNo,
-            @Param("svcEnv") String svcEnv
-    );
-
-    int deleteIFApiKey(@Param("sysEmpNo") String sysEmpNo);
-}
-
-<update id="mergeSysEmpNo" parameterType="com.skhynix.hcp.svc.api.store.vo.HcpApiKeySys">
-    MERGE INTO HCP_API_KEY_SYS T
-    USING (
-        SELECT
-            #{svcId} AS SVC_ID,
-            #{keyId} AS KEY_ID,
-            #{sysEmpNo} AS SYS_EMP_NO,
-            #{svcEnv} AS SVC_ENV
-        FROM DUAL
-    ) S
-    ON (
-        T.SVC_ID = S.SVC_ID
-        AND T.KEY_ID = S.KEY_ID
-        AND T.SVC_ENV = S.SVC_ENV
-    )
-    WHEN MATCHED THEN
-        UPDATE SET
-            T.SYS_EMP_NO = S.SYS_EMP_NO
-    WHEN NOT MATCHED THEN
-        INSERT (
-            SYS_ID,
-            KEY_ID,
-            SVC_ID,
-            SYS_EMP_NO,
-            SVC_ENV
-        )
-        VALUES (
-            HCP_API_KEY_SYS_SEQ.NEXTVAL,
-            S.KEY_ID,
-            S.SVC_ID,
-            S.SYS_EMP_NO,
-            S.SVC_ENV
-        )
-</update>
-
-<select id="findSysEmpNoMapping" resultType="com.skhynix.hcp.svc.api.store.vo.HcpApiKeySys">
-    SELECT
-        SYS_ID,
-        KEY_ID,
-        SVC_ID,
-        SYS_EMP_NO,
-        SVC_ENV
-    FROM HCP_API_KEY_SYS
-    WHERE SVC_ID = #{svcId}
-      AND KEY_ID = #{keyId}
-      AND SVC_ENV = #{svcEnv}
-</select>
-
-<delete id="deleteSysEmpNo">
-    DELETE
-    FROM HCP_API_KEY_SYS
-    WHERE SVC_ID = #{svcId}
-      AND KEY_ID = #{keyId}
-      AND SYS_EMP_NO = #{sysEmpNo}
-      AND SVC_ENV = #{svcEnv}
-</delete>
-
-
-<update id="deleteIFApiKeyFromStg" parameterType="String">
-    UPDATE IDM_USR_TBL_STG
-    SET
-        KEY_ID = NULL,
-        API_STORE_KEY = NULL
-    WHERE ACCOUNT = #{sysEmpNo}
-</update>
-
-<update id="deleteIFApiKeyFromPrd" parameterType="String">
-    UPDATE IDM_USR_TBL
-    SET
-        KEY_ID = NULL,
-        API_STORE_KEY = NULL
-    WHERE ACCOUNT = #{sysEmpNo}
-</update>
-
-private void resetIfApiKey(String sysEmpNo) {
-    if ("STG".equalsIgnoreCase(hcpApplicationEnv)) {
-        hcpApiSvcMapper.deleteIFApiKeyFromStg(sysEmpNo);
-    } else {
-        hcpApiSvcMapper.deleteIFApiKeyFromPrd(sysEmpNo);
+    private void updateIfApiKey(HcpApiKeySys hcpApiKeysys){
+        if ("STG".equalsIgnoreCase(env)) {
+            hcpApiSvcMapper.updateIFApiKeyFromStg(hcpApiKeysys);
+        } else {
+            hcpApiSvcMapper.updateIFApiKey(hcpApiKeysys);
+        }
     }
-}
 
 
+  <update id="updateIFApiKeyFromStg" parameterType="com.skhynix.hcp.svc.api.store.vo.HcpApiKeySys">
+        UPDATE IDM_USR_TBL_STG
+        SET
+            KEY_ID =  #{keyId},
+            API_STORE_KEY = (SELECT KEY_PUB FROM HCP_API_KEY hak
+                                                      INNER JOIN HCP_API_KEY_AUTH haka
+                                                                 ON hak.KEY_ID = haka.KEY_ID
+                              WHERE
+                                  hak.KEY_ID = #{keyId}
+                                AND
+                                  hak.SVC_ENV = '${hcp.application.env}')
+        WHERE ACCOUNT = #{sysEmpNo}
+    </update>
+
+    <update id="updateIFApiKey" parameterType="com.skhynix.hcp.svc.api.store.vo.HcpApiKeySys">
+        UPDATE IDM_USR_TBL
+        SET
+            KEY_ID =  #{keyId},
+            API_STORE_KEY = (SELECT KEY_PUB FROM HCP_API_KEY hak
+                                                     INNER JOIN HCP_API_KEY_AUTH haka
+                                                                ON hak.KEY_ID = haka.KEY_ID
+                             WHERE
+                                 hak.KEY_ID = #{keyId}
+                               AND
+                                 hak.SVC_ENV = '${hcp.application.env}')
+        WHERE ACCOUNT = #{sysEmpNo}
+    </update>
