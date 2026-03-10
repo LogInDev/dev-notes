@@ -71,3 +71,125 @@
             throw new RestException(INTERNAL_SERVER_ERROR, "처리 중 오류가 발생했습니다.");
         }
     }
+
+
+
+/* 구독 해제*/
+/**
+     * 구독 해제
+     *
+     * @param hcpApiSubList
+     * @param empNo
+     */
+    @Transactional
+    public void unsubscribe(List<HcpApiSub> hcpApiSubList, String empNo) {
+        Map<Long, String> svcTypeCacheMap = Maps.newHashMap();
+        Set<Long> svcIds = new HashSet<>();
+
+        int updateCnt = 0;
+        for (HcpApiSub it : hcpApiSubList) {
+            it.setEmpNo(empNo);
+            it.setBeforeSubStatCd("NOR");
+
+            Long keyId = it.getKeyId();
+            Long svcId = it.getSvcId();
+            svcIds.add(svcId);
+            String svcType = svcTypeCacheMap.computeIfAbsent(svcId, k -> hcpApiSvcMapper.getHcpSvcType(svcId));
+            if ("CTS".equalsIgnoreCase(svcType)) {
+                CtsSubKeyInfo keyInfo = hcpApiTokenMapper.getCtsSubKeyInfo(keyId);
+
+                if (keyInfo == null) {
+                    log.error("keyInfo is null - keyId : {}", keyId);
+                    throw new RestException(ResponseCode.BAD_REQUEST, "keyInfo is null");
+                }
+
+                // 2. CTS구독 프로세스
+                try {
+                    ctsService.unSubscriptionCts(keyInfo);
+                } catch (Exception e) {
+                    log.error("cts subscription error! - {}", e.getMessage());
+                    throw new RestException(ResponseCode.INTERNAL_SERVER_ERROR, "cts subscription fail");
+                }
+            }
+            int cnt = hcpApiSubMapper.updateApiSub(it);
+            updateCnt += cnt;
+        }
+
+        if( updateCnt == 0){
+            throw new RestException(ResponseCode.BAD_REQUEST, "구독 해제된 API가 없습니다. 잘못된 요청입니다.");
+        }
+        // DRM 서비스 타입 구독 시 시스템 사번 매핑
+        HcpApiSub hcpApiSub = hcpApiSubList.get(0);
+        String svcType = hcpApiSvcMapper.getHcpSvcType(hcpApiSub.getSvcId());
+        if(svcType.equals("DRM")){
+            deleteSysEmpNoMapping(hcpApiSub);
+        }
+        hcpApiQosService.deleteApiQosByPubIdAndKeyId(hcpApiSubList);
+
+        for (Long svcId : svcIds) {
+            commonService.actionHistory(svcId, "CCL", empNo, "구독 신청이 해제되었습니다");
+        }
+    }
+
+
+@Transactional
+    public int deleteSysEmpNoMapping(HcpApiSub hcpApiSub){
+        hcpApiSvcMapper.deleteIFApiKey(hcpApiSub.getSysEmpNo());
+        return hcpApiSvcMapper.deleteSysEmpNo(hcpApiSub.getSysEmpNo());
+    }
+
+
+/* mapper.xml*/
+
+ <insert id="insertSysEmpNo" parameterType="com.skhynix.hcp.svc.api.store.vo.HcpApiKeySys" >
+        /* HcpApiSvcMapper.insertSysEmpNo :  HCP API SysEmpNO 정보 매핑 */
+
+        <selectKey resultType="long" keyProperty="sysId" order="BEFORE">
+            SELECT HCP_API_KEY_SYS_SEQ.NEXTVAL FROM DUAL
+        </selectKey>
+
+        INSERT INTO HCP_API_KEY_SYS
+        <trim prefix="(" suffix=")" prefixOverrides=",">
+            ,SYS_ID                  /* SysEmpNo ID */
+            ,KEY_ID                  /* Key ID */
+            ,SVC_ID                  /* API Service ID */
+            ,SYS_EMP_NO              /* 시스템 사번 */
+            ,SVC_ENV				 /* DEV or STG or PRD */
+        </trim>
+        VALUES
+        <trim prefix="(" suffix=")" prefixOverrides=",">
+            ,#{sysId}				/* SysEmpNo ID */
+            ,#{keyId}				/* Key ID */
+            ,#{svcId}				/* API Service ID */
+            ,#{sysEmpNo}            /* 시스템 사번 */
+            ,#{svcEnv}  			/* DEV or STG or PRD */
+        </trim>
+    </insert>
+
+    <!-- HCP API SysEmpNo 매핑 정보 삭제 -->
+    <delete id="deleteSysEmpNo" parameterType="String">
+        DELETE /* HcpApiSvcMapper.deleteSysEmpNo : HCP API SysEmpNo 매핑 정보 삭제 */
+        FROM HCP_API_KEY_SYS
+        WHERE
+            SYS_EMP_NO = #{sysEmpNo}
+          AND
+            SVC_ENV = '${hcp.application.env}'
+    </delete>
+
+    <!-- HCP API 서비스 정보 수정 -->
+    <update id="deleteIFApiKey" parameterType="String" >
+        /* HcpApiSvcMapper.deleteIFApiKey : I/F 테이블 Key 정보 리셋 */
+        UPDATE
+            <if test="${hcp.application.env} == STG">
+                IDM_USR_TBL_STG
+            </if>
+            <if test="${hcp.application.env} != STG">
+                IDM_USR_TBL
+            </if>
+        SET
+            KEY_ID = null,
+            API_STORE_KEY = null
+        WHERE
+            ACCOUNT = #{sysEmpNo}
+    </update>
+
