@@ -54,6 +54,9 @@
         HcpApiSub hcpApiSub = hcpApiSubList.get(0);
         String svcType = hcpApiSvcMapper.getHcpSvcType(hcpApiSub.getSvcId());
         if("DRM".equalsIgnoreCase(svcType)) {
+            HcpApiKeySys sysEmpNo = hcpApiSvcMapper.getSysEmpNo(hcpApiSub.getSvcId(), hcpApiSub.getKeyId());
+            hcpApiSub.setSysEmpNo(sysEmpNo.getSysEmpNo());
+            validateDrmSubscriptionTarget(hcpApiSub);
             updateIfApiKey(HcpApiKeySys.builder()
                     .svcId(hcpApiSub.getSvcId())
                     .keyId(hcpApiSub.getKeyId())
