@@ -9,7 +9,7 @@ import Confirm from '@/components/Atoms/Confirm';
 import { useToast } from '@/utils/ToastProvider';
 import {
   fetchDrmAllowIpList,
-  saveDrmAllowIpList,
+  saveDrmAllowIpChanges,
   resetDrmAllowIpResult,
 } from '@/store/reduxStore/detail/reducer';
 
@@ -43,22 +43,67 @@ const splitIntoColumns = (list, columnCount = 4) => {
   return cols;
 };
 
-// 원본/드래프트 비교용
-const toComparableList = (list) =>
-  (list || [])
-    .map((item) => normalize(item.ip))
-    .filter(Boolean);
+const buildDrmAllowIpPayload = (originalList, draftList) => {
+  const normalizedOriginal = (originalList || []).map((item) => ({
+    ipId: item.ipId,
+    ip: normalize(item.ip),
+  }));
 
-const isSameIpList = (originList, draftList) => {
-  const origin = toComparableList(originList);
-  const draft = toComparableList(draftList);
+  const normalizedDraft = (draftList || []).map((item) => ({
+    ipId: item.isNew ? null : item.ipId,
+    tempId: item.tempId,
+    ip: normalize(item.ip),
+    isNew: item.isNew === true,
+  }));
 
-  if (origin.length !== draft.length) return false;
-  return origin.every((value, idx) => value === draft[idx]);
+  const createdList = normalizedDraft
+    .filter((item) => item.isNew)
+    .map((item) => ({
+      ip: item.ip,
+    }));
+
+  const updatedList = normalizedDraft
+    .filter((item) => !item.isNew && item.ipId != null)
+    .filter((draftItem) => {
+      const originItem = normalizedOriginal.find(
+        (origin) => origin.ipId === draftItem.ipId,
+      );
+      return originItem && originItem.ip !== draftItem.ip;
+    })
+    .map((item) => ({
+      ipId: item.ipId,
+      ip: item.ip,
+    }));
+
+  const deletedList = normalizedOriginal
+    .filter((originItem) => {
+      return !normalizedDraft.some(
+        (draftItem) =>
+          draftItem.isNew !== true && draftItem.ipId === originItem.ipId,
+      );
+    })
+    .map((item) => ({
+      ipId: item.ipId,
+    }));
+
+  return {
+    createdList,
+    updatedList,
+    deletedList,
+  };
+};
+
+const hasDiff = ({ createdList, updatedList, deletedList }) => {
+  return (
+    createdList.length > 0 ||
+    updatedList.length > 0 ||
+    deletedList.length > 0
+  );
 };
 
 const createDraftRow = (ip) => ({
-  ipId: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  ipId: null,
   ip,
   isNew: true,
 });
@@ -81,14 +126,9 @@ const DrmAllowIpSection = ({ svcId }) => {
 
   const [isEditing, setIsEditing] = useState(false);
   const [newIp, setNewIp] = useState('');
-
-  // ✅ 수정모드 전용 로컬 draft
   const [draftAllowIps, setDraftAllowIps] = useState([]);
-
-  // ✅ 현재 편집 중인 row 1개만 관리
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState('');
-
   const [deleteConfirm, setDeleteConfirm] = useState({
     open: false,
     row: null,
@@ -103,8 +143,10 @@ const DrmAllowIpSection = ({ svcId }) => {
       if (lastAction === 'save') {
         addToast('허용 IP가 적용되었습니다.', 'success');
         setIsEditing(false);
+        setDraftAllowIps([]);
         setEditingId(null);
         setEditingValue('');
+        setNewIp('');
       }
       dispatch(resetDrmAllowIpResult());
     }
@@ -112,13 +154,10 @@ const DrmAllowIpSection = ({ svcId }) => {
     if (error) {
       if (error.code === 'DUPLICATE') {
         addToast('중복된 허용 IP가 있습니다.', 'warning');
-      } else {
-        if (lastAction === 'fetch') {
-          addToast('허용 IP 조회 중 오류가 발생했습니다.', 'error');
-        }
-        if (lastAction === 'save') {
-          addToast('허용 IP 적용 중 오류가 발생했습니다.', 'error');
-        }
+      } else if (lastAction === 'fetch') {
+        addToast('허용 IP 조회 중 오류가 발생했습니다.', 'error');
+      } else if (lastAction === 'save') {
+        addToast('허용 IP 적용 중 오류가 발생했습니다.', 'error');
       }
       dispatch(resetDrmAllowIpResult());
     }
@@ -140,11 +179,12 @@ const DrmAllowIpSection = ({ svcId }) => {
   const currentList = isEditing ? draftAllowIps : allowIps;
 
   const isDuplicate = useCallback(
-    (value, excludeId) => {
+    (value, excludeKey) => {
       const v = normalize(value);
-      return currentList.some(
-        (item) => normalize(item.ip) === v && item.ipId !== excludeId,
-      );
+      return currentList.some((item) => {
+        const key = item.isNew ? item.tempId : item.ipId;
+        return normalize(item.ip) === v && key !== excludeKey;
+      });
     },
     [currentList],
   );
@@ -152,10 +192,10 @@ const DrmAllowIpSection = ({ svcId }) => {
   const columns = useMemo(() => splitIntoColumns(currentList, 4), [currentList]);
 
   const startEditMode = () => {
-    // ✅ 수정 시작 시 원본을 draft로 복사
     setDraftAllowIps(
       (allowIps || []).map((item) => ({
         ...item,
+        isNew: false,
       })),
     );
     setIsEditing(true);
@@ -180,7 +220,7 @@ const DrmAllowIpSection = ({ svcId }) => {
       return;
     }
 
-    if (isDuplicate(v)) {
+    if (isDuplicate(v, null)) {
       addToast('이미 등록된 허용 IP입니다.', 'warning');
       return;
     }
@@ -190,7 +230,8 @@ const DrmAllowIpSection = ({ svcId }) => {
   }, [newIp, validate, isDuplicate, addToast]);
 
   const onStartEdit = useCallback((row) => {
-    setEditingId(row.ipId);
+    const rowKey = row.isNew ? row.tempId : row.ipId;
+    setEditingId(rowKey);
     setEditingValue(row.ip);
   }, []);
 
@@ -213,14 +254,14 @@ const DrmAllowIpSection = ({ svcId }) => {
     }
 
     setDraftAllowIps((prev) =>
-      prev.map((row) =>
-        row.ipId === editingId
-          ? {
-              ...row,
-              ip: v,
-            }
-          : row,
-      ),
+      prev.map((row) => {
+        const rowKey = row.isNew ? row.tempId : row.ipId;
+        if (rowKey !== editingId) return row;
+        return {
+          ...row,
+          ip: v,
+        };
+      }),
     );
 
     setEditingId(null);
@@ -233,11 +274,18 @@ const DrmAllowIpSection = ({ svcId }) => {
 
   const confirmDelete = useCallback(() => {
     const row = deleteConfirm.row;
-    if (!row?.ipId) return;
+    if (!row) return;
 
-    setDraftAllowIps((prev) => prev.filter((item) => item.ipId !== row.ipId));
+    const rowKey = row.isNew ? row.tempId : row.ipId;
 
-    if (editingId === row.ipId) {
+    setDraftAllowIps((prev) =>
+      prev.filter((item) => {
+        const itemKey = item.isNew ? item.tempId : item.ipId;
+        return itemKey !== rowKey;
+      }),
+    );
+
+    if (editingId === rowKey) {
       setEditingId(null);
       setEditingValue('');
     }
@@ -258,16 +306,17 @@ const DrmAllowIpSection = ({ svcId }) => {
     }
 
     const normalizedDraft = draftAllowIps.map((row) => normalize(row.ip));
-    const hasDuplicate = normalizedDraft.some(
+    const hasDuplicateIp = normalizedDraft.some(
       (ip, idx) => normalizedDraft.indexOf(ip) !== idx,
     );
-    if (hasDuplicate) {
+    if (hasDuplicateIp) {
       addToast('중복된 허용 IP가 있습니다.', 'warning');
       return;
     }
 
-    // ✅ 실무 판단: 변경 없으면 API 요청하지 않음
-    if (isSameIpList(allowIps, draftAllowIps)) {
+    const diffPayload = buildDrmAllowIpPayload(allowIps, draftAllowIps);
+
+    if (!hasDiff(diffPayload)) {
       addToast('변경된 내용이 없습니다.', 'warning');
       setIsEditing(false);
       setDraftAllowIps([]);
@@ -275,22 +324,19 @@ const DrmAllowIpSection = ({ svcId }) => {
     }
 
     dispatch(
-      saveDrmAllowIpList({
+      saveDrmAllowIpChanges({
         svcId,
-        allowIps: draftAllowIps.map((row, sortOrder) => ({
-          ipId: row.isNew ? null : row.ipId,
-          ip: normalize(row.ip),
-          sortOrder,
-        })),
+        ...diffPayload,
       }),
     );
   };
 
   const renderRow = (row) => {
-    const isIpEditing = isEditing && editingId === row.ipId;
+    const rowKey = row.isNew ? row.tempId : row.ipId;
+    const isIpEditing = isEditing && editingId === rowKey;
 
     return (
-      <div key={row.ipId} style={{ padding: '10px 0' }}>
+      <div key={rowKey} style={{ padding: '10px 0' }}>
         <Division flex={true} gap={10} alignItems={'center'}>
           <div style={{ flex: 1, minWidth: 0 }}>
             {isIpEditing ? (
@@ -305,30 +351,23 @@ const DrmAllowIpSection = ({ svcId }) => {
             )}
           </div>
 
-          {isEditing && (
-            <>
-              {!isIpEditing ? (
-                <Division flex={true} gap={4} justifyContent={'center'}>
-                  <Buttons.IconEdit onClick={() => onStartEdit(row)} />
-                  <Buttons.IconDeleteRed onClick={() => openDelete(row)} />
-                </Division>
-              ) : (
-                <Division flex={true} gap={4} justifyContent={'center'}>
-                  <Buttons.IconSave
-                    onClick={onSaveRowEdit}
-                    disabled={saveLoading}
-                  />
-                  <Buttons.IconCancel
-                    onClick={onCancelRowEdit}
-                    disabled={saveLoading}
-                  />
-                </Division>
-              )}
-            </>
-          )}
+          {isEditing &&
+            (!isIpEditing ? (
+              <Division flex={true} gap={4} justifyContent={'center'}>
+                <Buttons.IconEdit onClick={() => onStartEdit(row)} />
+                <Buttons.IconDeleteRed onClick={() => openDelete(row)} />
+              </Division>
+            ) : (
+              <Division flex={true} gap={4} justifyContent={'center'}>
+                <Buttons.IconSave onClick={onSaveRowEdit} disabled={saveLoading} />
+                <Buttons.IconCancel
+                  onClick={onCancelRowEdit}
+                  disabled={saveLoading}
+                />
+              </Division>
+            ))}
         </Division>
 
-        {/* ✅ 값이 있는 row만 아래 선 */}
         <div style={{ borderBottom: '1px solid #DDDDDD', marginTop: 10 }} />
       </div>
     );
