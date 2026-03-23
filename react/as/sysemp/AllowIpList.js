@@ -1,20 +1,22 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import ContentHeader from '@/components/Organisms/ContentHeader';
-import Division from '@/components/Atoms/Division';
-import Buttons from '@/components/Atoms/Buttons';
-import Input from '@/components/Atoms/Input';
-import Divide from '@/components/Atoms/Divide';
-import Confirm from '@/components/Atoms/Confirm';
-import { useToast } from '@/utils/ToastProvider';
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { intlObj } from '@/utils/commonUtils';
+import message from '@/language/message';
+import { useDispatch, useSelector } from "react-redux";
+import ContentHeader from "@/components/Organisms/ContentHeader";
+import Division from "@/components/Atoms/Division";
+import Buttons from "@/components/Atoms/Buttons";
+import Input from "@/components/Atoms/Input";
+import Divide from "@/components/Atoms/Divide";
+import Confirm from "@/components/Atoms/Confirm";
+import { useToast } from "@/utils/ToastProvider";
 import {
   fetchDrmAllowIpList,
   saveDrmAllowIpChanges,
   resetDrmAllowIpResult,
-} from '@/store/reduxStore/detail/reducer';
+} from "@/store/reduxStore/detail/reducer";
 
 const isValidIpv4 = (ip) => {
-  const parts = (ip || '').trim().split('.');
+  const parts = (ip || "").trim().split(".");
   if (parts.length !== 4) return false;
   return parts.every((p) => {
     if (!/^\d+$/.test(p)) return false;
@@ -24,8 +26,8 @@ const isValidIpv4 = (ip) => {
 };
 
 const isValidCidr = (value) => {
-  const v = (value || '').trim();
-  const [ip, mask] = v.split('/');
+  const v = (value || "").trim();
+  const [ip, mask] = v.split("/");
   if (!ip || mask === undefined) return false;
   if (!isValidIpv4(ip)) return false;
   if (!/^\d+$/.test(mask)) return false;
@@ -33,9 +35,9 @@ const isValidCidr = (value) => {
   return m >= 0 && m <= 32;
 };
 
-const normalize = (v) => (v || '').trim();
+const normalize = (v) => (v || "").trim();
 
-const splitIntoColumns = (list, columnCount = 4) => {
+const splitIntoColumns = (list, columnCount = 2) => {
   const cols = Array.from({ length: columnCount }, () => []);
   list.forEach((item, index) => {
     cols[index % columnCount].push(item);
@@ -108,7 +110,7 @@ const createDraftRow = (ip) => ({
   isNew: true,
 });
 
-const DrmAllowIpSection = ({ svcId }) => {
+const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
   const dispatch = useDispatch();
   const { addToast } = useToast();
 
@@ -124,11 +126,11 @@ const DrmAllowIpSection = ({ svcId }) => {
   const error = drmAllowIpState?.error;
   const lastAction = drmAllowIpState?.lastAction;
 
-  const [isEditing, setIsEditing] = useState(false);
   const [newIp, setNewIp] = useState('');
   const [draftAllowIps, setDraftAllowIps] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState('');
+  const [editingLabel, setEditingLabel] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState({
     open: false,
     row: null,
@@ -141,11 +143,12 @@ const DrmAllowIpSection = ({ svcId }) => {
   useEffect(() => {
     if (success) {
       if (lastAction === 'save') {
-        addToast('허용 IP가 적용되었습니다.', 'success');
+        addToast(intlObj.get(message['store.success.applyAllowIp']), 'success');
         setIsEditing(false);
         setDraftAllowIps([]);
         setEditingId(null);
         setEditingValue('');
+        setEditingLabel('');
         setNewIp('');
       }
       dispatch(resetDrmAllowIpResult());
@@ -153,11 +156,11 @@ const DrmAllowIpSection = ({ svcId }) => {
 
     if (error) {
       if (error.code === 'DUPLICATE') {
-        addToast('중복된 허용 IP가 있습니다.', 'warning');
+        addToast(intlObj.get(message['store.validation.duplicate']), 'warning');
       } else if (lastAction === 'fetch') {
-        addToast('허용 IP 조회 중 오류가 발생했습니다.', 'error');
+        addToast(intlObj.get(message['store.error.fetchAllowIp']), 'error');
       } else if (lastAction === 'save') {
-        addToast('허용 IP 적용 중 오류가 발생했습니다.', 'error');
+        addToast(intlObj.get(message['store.error.applyAllowIp']), 'error');
       }
       dispatch(resetDrmAllowIpResult());
     }
@@ -165,12 +168,12 @@ const DrmAllowIpSection = ({ svcId }) => {
 
   const validate = useCallback((value) => {
     const v = normalize(value);
-    if (!v) return { ok: false, msg: '허용 IP를 입력해 주세요.' };
+    if (!v) return { ok: false, msg: intlObj.get(message['store.validation.allowIpValue']) };
     const ok = isValidIpv4(v) || isValidCidr(v);
     if (!ok) {
       return {
         ok: false,
-        msg: '형식이 올바르지 않습니다. 예) 10.0.0.1 또는 10.0.0.0/25',
+        msg: intlObj.get(message['store.validation.allowIp']),
       };
     }
     return { ok: true };
@@ -189,7 +192,7 @@ const DrmAllowIpSection = ({ svcId }) => {
     [currentList],
   );
 
-  const columns = useMemo(() => splitIntoColumns(currentList, 4), [currentList]);
+  const columns = useMemo(() => splitIntoColumns(currentList, 2), [currentList]);
 
   const startEditMode = () => {
     setDraftAllowIps(
@@ -202,6 +205,7 @@ const DrmAllowIpSection = ({ svcId }) => {
     setNewIp('');
     setEditingId(null);
     setEditingValue('');
+    setEditingLabel('');
   };
 
   const cancelEditMode = () => {
@@ -210,6 +214,7 @@ const DrmAllowIpSection = ({ svcId }) => {
     setNewIp('');
     setEditingId(null);
     setEditingValue('');
+    setEditingLabel('');
   };
 
   const onAdd = useCallback(() => {
@@ -221,7 +226,7 @@ const DrmAllowIpSection = ({ svcId }) => {
     }
 
     if (isDuplicate(v, null)) {
-      addToast('이미 등록된 허용 IP입니다.', 'warning');
+      addToast(intlObj.get(message['store.warning.alreadyRegisteredIp']), 'warning');
       return;
     }
 
@@ -233,11 +238,13 @@ const DrmAllowIpSection = ({ svcId }) => {
     const rowKey = row.isNew ? row.tempId : row.ipId;
     setEditingId(rowKey);
     setEditingValue(row.ip);
+    setEditingLabel(row.label);
   }, []);
 
   const onCancelRowEdit = useCallback(() => {
     setEditingId(null);
     setEditingValue('');
+    setEditingLabel('');
   }, []);
 
   const onSaveRowEdit = useCallback(() => {
@@ -249,7 +256,7 @@ const DrmAllowIpSection = ({ svcId }) => {
     }
 
     if (isDuplicate(v, editingId)) {
-      addToast('이미 등록된 허용 IP입니다.', 'warning');
+      addToast(intlObj.get(message['store.warning.alreadyRegisteredIp']), 'warning');
       return;
     }
 
@@ -257,16 +264,14 @@ const DrmAllowIpSection = ({ svcId }) => {
       prev.map((row) => {
         const rowKey = row.isNew ? row.tempId : row.ipId;
         if (rowKey !== editingId) return row;
-        return {
-          ...row,
-          ip: v,
-        };
+        return {...row, ip: v, label: editingLabel};
       }),
     );
 
     setEditingId(null);
     setEditingValue('');
-  }, [editingValue, editingId, validate, isDuplicate, addToast]);
+    setEditingLabel('');
+  }, [editingValue, editingLabel, editingId, validate, isDuplicate, addToast]);
 
   const openDelete = useCallback((row) => {
     setDeleteConfirm({ open: true, row });
@@ -288,6 +293,7 @@ const DrmAllowIpSection = ({ svcId }) => {
     if (editingId === rowKey) {
       setEditingId(null);
       setEditingValue('');
+      setEditingLabel('');
     }
 
     setDeleteConfirm({ open: false, row: null });
@@ -295,13 +301,13 @@ const DrmAllowIpSection = ({ svcId }) => {
 
   const handleApply = () => {
     if (editingId) {
-      addToast('편집 중인 IP를 먼저 저장 또는 취소해 주세요.', 'warning');
+      addToast(intlObj.get(message['store.validation.pendingEdit']), 'warning');
       return;
     }
 
     const invalidRow = draftAllowIps.find((row) => !validate(row.ip).ok);
     if (invalidRow) {
-      addToast('유효하지 않은 허용 IP가 있습니다.', 'warning');
+      addToast(intlObj.get(message['store.validation.invalidIp']), 'warning');
       return;
     }
 
@@ -310,14 +316,14 @@ const DrmAllowIpSection = ({ svcId }) => {
       (ip, idx) => normalizedDraft.indexOf(ip) !== idx,
     );
     if (hasDuplicateIp) {
-      addToast('중복된 허용 IP가 있습니다.', 'warning');
+      addToast(intlObj.get(message['store.validation.duplicate']), 'warning');
       return;
     }
 
     const diffPayload = buildDrmAllowIpPayload(allowIps, draftAllowIps);
 
     if (!hasDiff(diffPayload)) {
-      addToast('변경된 내용이 없습니다.', 'warning');
+      addToast(intlObj.get(message['store.validation.noChanges']), 'warning');
       setIsEditing(false);
       setDraftAllowIps([]);
       return;
@@ -331,7 +337,7 @@ const DrmAllowIpSection = ({ svcId }) => {
     );
   };
 
-  const renderRow = (row) => {
+  const renderRow = (row, index) => {
     const rowKey = row.isNew ? row.tempId : row.ipId;
     const isIpEditing = isEditing && editingId === rowKey;
 
@@ -340,14 +346,29 @@ const DrmAllowIpSection = ({ svcId }) => {
         <Division flex={true} gap={10} alignItems={'center'}>
           <div style={{ flex: 1, minWidth: 0 }}>
             {isIpEditing ? (
-              <Input
-                value={editingValue}
-                onChange={(e) => setEditingValue(e.target.value)}
-                maxLength={100}
-                maxWidth={220}
-              />
+              <div style={{display: 'flex', gap: '10px'}}>
+                <div style={{ wordBreak: 'break-all', flex: 1 }}>{index}</div>
+                <Input
+                  style={{ flex: 2 }}
+                  value={editingValue}
+                  onChange={(e) => setEditingValue(e.target.value)}
+                  maxLength={100}
+                  maxWidth={220}
+                />
+                <Input
+                  style={{ flex: 3 }}
+                  value={editingLabel}
+                  onChange={(e) => setEditingLabel(e.target.value)}
+                  maxLength={100}
+                  maxWidth={290}
+                />
+              </div>
             ) : (
-              <div style={{ wordBreak: 'break-all' }}>{row.ip}</div>
+              <div style={{display: 'flex', gap: '10px'}}>
+                <div style={{ wordBreak: 'break-all', flex: 1 }}>{index}</div>
+                <div style={{ wordBreak: 'break-all', flex: 2 }}>{row.ip}</div>
+                <div style={{ wordBreak: 'break-all', flex: 3 }}>{row.label}</div>
+              </div>
             )}
           </div>
 
@@ -376,7 +397,7 @@ const DrmAllowIpSection = ({ svcId }) => {
   return (
     <div>
       <ContentHeader
-        title="허용 IP 관리"
+        title={intlObj.get(message['store.manageAllowIp'])}
         $border={true}
         spacing={20}
         extraContent={
@@ -388,7 +409,7 @@ const DrmAllowIpSection = ({ svcId }) => {
                 minWidth="80"
                 disabled={saveLoading}
               >
-                취소
+                {intlObj.get(message['store.cancel'])}
               </Buttons.Outlined>
 
               <Buttons.Outlined
@@ -397,7 +418,7 @@ const DrmAllowIpSection = ({ svcId }) => {
                 minWidth="80"
                 disabled={saveLoading}
               >
-                적용하기
+                {intlObj.get(message['store.apply'])}
               </Buttons.Outlined>
             </Division>
           ) : (
@@ -407,7 +428,7 @@ const DrmAllowIpSection = ({ svcId }) => {
               minWidth="80"
               disabled={fetchLoading || saveLoading}
             >
-              수정하기
+              {intlObj.get(message['store.edit'])}
             </Buttons.Outlined>
           )
         }
@@ -421,7 +442,7 @@ const DrmAllowIpSection = ({ svcId }) => {
             <Input
               value={newIp}
               onChange={(e) => setNewIp(e.target.value)}
-              placeholder="허용 IP를 입력하세요. ( 예 : 10.0.0.0/25 )"
+              placeholder={intlObj.get(message['store.placeholder.input.allowIp'])}
               maxLength={100}
               maxWidth={350}
             />
@@ -431,7 +452,7 @@ const DrmAllowIpSection = ({ svcId }) => {
               minWidth="80"
               disabled={saveLoading}
             >
-              추가
+              {intlObj.get(message['store.add'])}
             </Buttons.Outlined>
           </Division>
           <Divide top={10} bottom={0} $border={false} />
@@ -440,17 +461,24 @@ const DrmAllowIpSection = ({ svcId }) => {
 
       {fetchLoading ? (
         <div style={{ fontSize: 13, opacity: 0.7, padding: '8px 0' }}>
-          조회 중...
+          {intlObj.get(message['store.loading.searching'])}
         </div>
       ) : currentList.length === 0 ? (
         <div style={{ fontSize: 13, opacity: 0.7, padding: '8px 0' }}>
-          등록된 허용 IP가 없습니다.
+          {intlObj.get(message['store.noAllowIp'])}
         </div>
       ) : (
         <Division flex={true} gap={20} alignItems={'flex-start'}>
           {columns.map((col, colIdx) => (
             <div key={colIdx} style={{ flex: 1, minWidth: 0 }}>
-              {col.map(renderRow)}
+              <div>
+                <div style={{display:'flex', gap: '10px', marginRight: '56px'}}>
+                  <div style={{ flex: 1 }}>No.</div>
+                  <div style={{ flex: 2 }}>IP</div>
+                  <div style={{ flex: 3 }}>Lable</div>
+                </div>
+                {col.map(renderRow)}
+              </div>
             </div>
           ))}
         </Division>
@@ -458,10 +486,10 @@ const DrmAllowIpSection = ({ svcId }) => {
 
       <Confirm
         open={deleteConfirm.open}
-        title={'허용 IP 삭제'}
-        desc={'해당 허용 IP를 삭제하시겠습니까?'}
-        okText={'삭제'}
-        cancelText={'취소'}
+        title={intlObj.get(message['store.confirm.title.allowIpDelete'])}
+        desc={intlObj.get(message['store.confirm.desc.allowIpDelete'])}
+        okText={intlObj.get(message['store.delete'])}
+        cancelText={intlObj.get(message['store.cancel'])}
         onOk={confirmDelete}
         onCancel={() => setDeleteConfirm({ open: false, row: null })}
       />
