@@ -1,22 +1,22 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { intlObj } from '@/utils/commonUtils';
 import message from '@/language/message';
-import { useDispatch, useSelector } from "react-redux";
-import ContentHeader from "@/components/Organisms/ContentHeader";
-import Division from "@/components/Atoms/Division";
-import Buttons from "@/components/Atoms/Buttons";
-import Input from "@/components/Atoms/Input";
-import Divide from "@/components/Atoms/Divide";
-import Confirm from "@/components/Atoms/Confirm";
-import { useToast } from "@/utils/ToastProvider";
+import { useDispatch, useSelector } from 'react-redux';
+import ContentHeader from '@/components/Organisms/ContentHeader';
+import Division from '@/components/Atoms/Division';
+import Buttons from '@/components/Atoms/Buttons';
+import Input from '@/components/Atoms/Input';
+import Divide from '@/components/Atoms/Divide';
+import Confirm from '@/components/Atoms/Confirm';
+import { useToast } from '@/utils/ToastProvider';
 import {
   fetchDrmAllowIpList,
   saveDrmAllowIpChanges,
   resetDrmAllowIpResult,
-} from "@/store/reduxStore/detail/reducer";
+} from '@/store/reduxStore/detail/reducer';
 
 const isValidIpv4 = (ip) => {
-  const parts = (ip || "").trim().split(".");
+  const parts = (ip || '').trim().split('.');
   if (parts.length !== 4) return false;
   return parts.every((p) => {
     if (!/^\d+$/.test(p)) return false;
@@ -26,8 +26,8 @@ const isValidIpv4 = (ip) => {
 };
 
 const isValidCidr = (value) => {
-  const v = (value || "").trim();
-  const [ip, mask] = v.split("/");
+  const v = (value || '').trim();
+  const [ip, mask] = v.split('/');
   if (!ip || mask === undefined) return false;
   if (!isValidIpv4(ip)) return false;
   if (!/^\d+$/.test(mask)) return false;
@@ -35,12 +35,15 @@ const isValidCidr = (value) => {
   return m >= 0 && m <= 32;
 };
 
-const normalize = (v) => (v || "").trim();
+const normalize = (v) => (v || '').trim();
 
 const splitIntoColumns = (list, columnCount = 2) => {
   const cols = Array.from({ length: columnCount }, () => []);
   list.forEach((item, index) => {
-    cols[index % columnCount].push(item);
+    cols[index % columnCount].push({
+      ...item,
+      rowNo: index + 1, // [CHANGED] 전체 리스트 기준 순번
+    });
   });
   return cols;
 };
@@ -49,12 +52,14 @@ const buildDrmAllowIpPayload = (originalList, draftList) => {
   const normalizedOriginal = (originalList || []).map((item) => ({
     ipId: item.ipId,
     ip: normalize(item.ip),
+    label: normalize(item.label),
   }));
 
   const normalizedDraft = (draftList || []).map((item) => ({
     ipId: item.isNew ? null : item.ipId,
     tempId: item.tempId,
     ip: normalize(item.ip),
+    label: normalize(item.label),
     isNew: item.isNew === true,
   }));
 
@@ -62,6 +67,7 @@ const buildDrmAllowIpPayload = (originalList, draftList) => {
     .filter((item) => item.isNew)
     .map((item) => ({
       ip: item.ip,
+      label: item.label,
     }));
 
   const updatedList = normalizedDraft
@@ -70,11 +76,16 @@ const buildDrmAllowIpPayload = (originalList, draftList) => {
       const originItem = normalizedOriginal.find(
         (origin) => origin.ipId === draftItem.ipId,
       );
-      return originItem && originItem.ip !== draftItem.ip;
+
+      return (
+        originItem &&
+        (originItem.ip !== draftItem.ip || originItem.label !== draftItem.label)
+      );
     })
     .map((item) => ({
       ipId: item.ipId,
       ip: item.ip,
+      label: item.label,
     }));
 
   const deletedList = normalizedOriginal
@@ -103,10 +114,11 @@ const hasDiff = ({ createdList, updatedList, deletedList }) => {
   );
 };
 
-const createDraftRow = (ip) => ({
+const createDraftRow = (ip, label) => ({
   tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   ipId: null,
   ip,
+  label,
   isNew: true,
 });
 
@@ -127,6 +139,7 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
   const lastAction = drmAllowIpState?.lastAction;
 
   const [newIp, setNewIp] = useState('');
+  const [newLabel, setNewLabel] = useState(''); // [CHANGED]
   const [draftAllowIps, setDraftAllowIps] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState('');
@@ -150,6 +163,7 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
         setEditingValue('');
         setEditingLabel('');
         setNewIp('');
+        setNewLabel('');
       }
       dispatch(resetDrmAllowIpResult());
     }
@@ -164,11 +178,16 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
       }
       dispatch(resetDrmAllowIpResult());
     }
-  }, [success, error, lastAction, dispatch, addToast]);
+  }, [success, error, lastAction, dispatch, addToast, setIsEditing]);
 
-  const validate = useCallback((value) => {
+  const validateIp = useCallback((value) => {
     const v = normalize(value);
-    if (!v) return { ok: false, msg: intlObj.get(message['store.validation.allowIpValue']) };
+    if (!v) {
+      return {
+        ok: false,
+        msg: intlObj.get(message['store.validation.allowIpValue']),
+      };
+    }
     const ok = isValidIpv4(v) || isValidCidr(v);
     if (!ok) {
       return {
@@ -179,9 +198,21 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
     return { ok: true };
   }, []);
 
+  const validateLabel = useCallback((value) => {
+    const v = normalize(value);
+    if (!v) {
+      return {
+        ok: false,
+        msg: intlObj.get(message['store.validation.allowIpLabel']) ||
+          'Label을 입력해 주세요.',
+      };
+    }
+    return { ok: true };
+  }, []);
+
   const currentList = isEditing ? draftAllowIps : allowIps;
 
-  const isDuplicate = useCallback(
+  const isDuplicateIp = useCallback(
     (value, excludeKey) => {
       const v = normalize(value);
       return currentList.some((item) => {
@@ -198,11 +229,13 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
     setDraftAllowIps(
       (allowIps || []).map((item) => ({
         ...item,
+        label: item.label || '',
         isNew: false,
       })),
     );
     setIsEditing(true);
     setNewIp('');
+    setNewLabel('');
     setEditingId(null);
     setEditingValue('');
     setEditingLabel('');
@@ -212,33 +245,49 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
     setIsEditing(false);
     setDraftAllowIps([]);
     setNewIp('');
+    setNewLabel('');
     setEditingId(null);
     setEditingValue('');
     setEditingLabel('');
   };
 
   const onAdd = useCallback(() => {
-    const v = normalize(newIp);
-    const valid = validate(v);
-    if (!valid.ok) {
-      addToast(valid.msg, 'warning');
+    const normalizedIp = normalize(newIp);
+    const normalizedLabel = normalize(newLabel);
+
+    const ipValid = validateIp(normalizedIp);
+    if (!ipValid.ok) {
+      addToast(ipValid.msg, 'warning');
       return;
     }
 
-    if (isDuplicate(v, null)) {
-      addToast(intlObj.get(message['store.warning.alreadyRegisteredIp']), 'warning');
+    const labelValid = validateLabel(normalizedLabel);
+    if (!labelValid.ok) {
+      addToast(labelValid.msg, 'warning');
       return;
     }
 
-    setDraftAllowIps((prev) => [...prev, createDraftRow(v)]);
+    if (isDuplicateIp(normalizedIp, null)) {
+      addToast(
+        intlObj.get(message['store.warning.alreadyRegisteredIp']),
+        'warning',
+      );
+      return;
+    }
+
+    setDraftAllowIps((prev) => [
+      ...prev,
+      createDraftRow(normalizedIp, normalizedLabel),
+    ]);
     setNewIp('');
-  }, [newIp, validate, isDuplicate, addToast]);
+    setNewLabel('');
+  }, [newIp, newLabel, validateIp, validateLabel, isDuplicateIp, addToast]);
 
   const onStartEdit = useCallback((row) => {
     const rowKey = row.isNew ? row.tempId : row.ipId;
     setEditingId(rowKey);
-    setEditingValue(row.ip);
-    setEditingLabel(row.label);
+    setEditingValue(row.ip || '');
+    setEditingLabel(row.label || '');
   }, []);
 
   const onCancelRowEdit = useCallback(() => {
@@ -248,15 +297,26 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
   }, []);
 
   const onSaveRowEdit = useCallback(() => {
-    const v = normalize(editingValue);
-    const valid = validate(v);
-    if (!valid.ok) {
-      addToast(valid.msg, 'warning');
+    const normalizedIp = normalize(editingValue);
+    const normalizedLabel = normalize(editingLabel);
+
+    const ipValid = validateIp(normalizedIp);
+    if (!ipValid.ok) {
+      addToast(ipValid.msg, 'warning');
       return;
     }
 
-    if (isDuplicate(v, editingId)) {
-      addToast(intlObj.get(message['store.warning.alreadyRegisteredIp']), 'warning');
+    const labelValid = validateLabel(normalizedLabel);
+    if (!labelValid.ok) {
+      addToast(labelValid.msg, 'warning');
+      return;
+    }
+
+    if (isDuplicateIp(normalizedIp, editingId)) {
+      addToast(
+        intlObj.get(message['store.warning.alreadyRegisteredIp']),
+        'warning',
+      );
       return;
     }
 
@@ -264,14 +324,27 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
       prev.map((row) => {
         const rowKey = row.isNew ? row.tempId : row.ipId;
         if (rowKey !== editingId) return row;
-        return {...row, ip: v, label: editingLabel};
+
+        return {
+          ...row,
+          ip: normalizedIp,
+          label: normalizedLabel,
+        };
       }),
     );
 
     setEditingId(null);
     setEditingValue('');
     setEditingLabel('');
-  }, [editingValue, editingLabel, editingId, validate, isDuplicate, addToast]);
+  }, [
+    editingValue,
+    editingLabel,
+    editingId,
+    validateIp,
+    validateLabel,
+    isDuplicateIp,
+    addToast,
+  ]);
 
   const openDelete = useCallback((row) => {
     setDeleteConfirm({ open: true, row });
@@ -305,15 +378,27 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
       return;
     }
 
-    const invalidRow = draftAllowIps.find((row) => !validate(row.ip).ok);
-    if (invalidRow) {
+    const invalidIpRow = draftAllowIps.find((row) => !validateIp(row.ip).ok);
+    if (invalidIpRow) {
       addToast(intlObj.get(message['store.validation.invalidIp']), 'warning');
       return;
     }
 
-    const normalizedDraft = draftAllowIps.map((row) => normalize(row.ip));
-    const hasDuplicateIp = normalizedDraft.some(
-      (ip, idx) => normalizedDraft.indexOf(ip) !== idx,
+    const invalidLabelRow = draftAllowIps.find(
+      (row) => !validateLabel(row.label).ok,
+    );
+    if (invalidLabelRow) {
+      addToast(
+        intlObj.get(message['store.validation.allowIpLabel']) ||
+          'Label을 입력해 주세요.',
+        'warning',
+      );
+      return;
+    }
+
+    const normalizedDraftIps = draftAllowIps.map((row) => normalize(row.ip));
+    const hasDuplicateIp = normalizedDraftIps.some(
+      (ip, idx) => normalizedDraftIps.indexOf(ip) !== idx,
     );
     if (hasDuplicateIp) {
       addToast(intlObj.get(message['store.validation.duplicate']), 'warning');
@@ -337,43 +422,49 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
     );
   };
 
-  const renderRow = (row, index) => {
+  const renderRow = (row) => {
     const rowKey = row.isNew ? row.tempId : row.ipId;
-    const isIpEditing = isEditing && editingId === rowKey;
+    const isRowEditing = isEditing && editingId === rowKey;
 
     return (
       <div key={rowKey} style={{ padding: '10px 0' }}>
         <Division flex={true} gap={10} alignItems={'center'}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            {isIpEditing ? (
-              <div style={{display: 'flex', gap: '10px'}}>
-                <div style={{ wordBreak: 'break-all', flex: 1 }}>{index}</div>
-                <Input
-                  style={{ flex: 2 }}
-                  value={editingValue}
-                  onChange={(e) => setEditingValue(e.target.value)}
-                  maxLength={100}
-                  maxWidth={220}
-                />
-                <Input
-                  style={{ flex: 3 }}
-                  value={editingLabel}
-                  onChange={(e) => setEditingLabel(e.target.value)}
-                  maxLength={100}
-                  maxWidth={290}
-                />
+            {isRowEditing ? (
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ flex: 1 }}>{row.rowNo}</div>
+                <div style={{ flex: 2 }}>
+                  <Input
+                    value={editingValue}
+                    onChange={(e) => setEditingValue(e.target.value)}
+                    maxLength={100}
+                  />
+                </div>
+                <div style={{ flex: 3 }}>
+                  <Input
+                    value={editingLabel}
+                    onChange={(e) => setEditingLabel(e.target.value)}
+                    maxLength={100}
+                  />
+                </div>
               </div>
             ) : (
-              <div style={{display: 'flex', gap: '10px'}}>
-                <div style={{ wordBreak: 'break-all', flex: 1 }}>{index}</div>
-                <div style={{ wordBreak: 'break-all', flex: 2 }}>{row.ip}</div>
-                <div style={{ wordBreak: 'break-all', flex: 3 }}>{row.label}</div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <div style={{ wordBreak: 'break-all', flex: 1 }}>
+                  {row.rowNo}
+                </div>
+                <div style={{ wordBreak: 'break-all', flex: 2 }}>
+                  {row.ip}
+                </div>
+                <div style={{ wordBreak: 'break-all', flex: 3 }}>
+                  {row.label}
+                </div>
               </div>
             )}
           </div>
 
           {isEditing &&
-            (!isIpEditing ? (
+            (!isRowEditing ? (
               <Division flex={true} gap={4} justifyContent={'center'}>
                 <Buttons.IconEdit onClick={() => onStartEdit(row)} />
                 <Buttons.IconDeleteRed onClick={() => openDelete(row)} />
@@ -444,7 +535,17 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
               onChange={(e) => setNewIp(e.target.value)}
               placeholder={intlObj.get(message['store.placeholder.input.allowIp'])}
               maxLength={100}
-              maxWidth={350}
+              maxWidth={280}
+            />
+            <Input
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              placeholder={
+                intlObj.get(message['store.placeholder.input.allowIpLabel']) ||
+                'Label을 입력하세요.'
+              }
+              maxLength={100}
+              maxWidth={280}
             />
             <Buttons.Outlined
               type={'grey'}
@@ -472,10 +573,18 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
           {columns.map((col, colIdx) => (
             <div key={colIdx} style={{ flex: 1, minWidth: 0 }}>
               <div>
-                <div style={{display:'flex', gap: '10px', marginRight: '56px'}}>
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '10px',
+                    marginRight: '56px',
+                    fontWeight: 600,
+                    paddingBottom: '6px',
+                  }}
+                >
                   <div style={{ flex: 1 }}>No.</div>
                   <div style={{ flex: 2 }}>IP</div>
-                  <div style={{ flex: 3 }}>Lable</div>
+                  <div style={{ flex: 3 }}>Label</div>
                 </div>
                 {col.map(renderRow)}
               </div>
