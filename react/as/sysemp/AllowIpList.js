@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import { intlObj } from '@/utils/commonUtils';
 import message from '@/language/message';
-import { useDispatch, useSelector } from 'react-redux';
 import ContentHeader from '@/components/Organisms/ContentHeader';
 import Division from '@/components/Atoms/Division';
 import Buttons from '@/components/Atoms/Buttons';
 import Input from '@/components/Atoms/Input';
 import Divide from '@/components/Atoms/Divide';
 import Confirm from '@/components/Atoms/Confirm';
+import Table from '@/components/Organisms/Table';
 import { useToast } from '@/utils/ToastProvider';
 import {
   fetchDrmAllowIpList,
@@ -42,7 +43,7 @@ const splitIntoColumns = (list, columnCount = 2) => {
   list.forEach((item, index) => {
     cols[index % columnCount].push({
       ...item,
-      rowNo: index + 1, // [CHANGED] 전체 리스트 기준 순번
+      rowNo: index + 1,
     });
   });
   return cols;
@@ -139,7 +140,7 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
   const lastAction = drmAllowIpState?.lastAction;
 
   const [newIp, setNewIp] = useState('');
-  const [newLabel, setNewLabel] = useState(''); // [CHANGED]
+  const [newLabel, setNewLabel] = useState('');
   const [draftAllowIps, setDraftAllowIps] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState('');
@@ -203,7 +204,8 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
     if (!v) {
       return {
         ok: false,
-        msg: intlObj.get(message['store.validation.allowIpLabel']) ||
+        msg:
+          intlObj.get(message['store.validation.allowIpLabel']) ||
           'Label을 입력해 주세요.',
       };
     }
@@ -223,7 +225,10 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
     [currentList],
   );
 
-  const columns = useMemo(() => splitIntoColumns(currentList, 2), [currentList]);
+  const splitColumns = useMemo(
+    () => splitIntoColumns(currentList, 2),
+    [currentList],
+  );
 
   const startEditMode = () => {
     setDraftAllowIps(
@@ -422,68 +427,83 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
     );
   };
 
-  const renderRow = (row) => {
-    const rowKey = row.isNew ? row.tempId : row.ipId;
-    const isRowEditing = isEditing && editingId === rowKey;
+  const buildColumns = () => [
+    {
+      title: 'No.',
+      dataIndex: 'rowNo',
+      key: 'rowNo',
+      width: '12%',
+      align: 'center',
+      render: (text) => text,
+    },
+    {
+      title: 'IP',
+      dataIndex: 'ip',
+      key: 'ip',
+      width: '36%',
+      render: (text, record) => {
+        const rowKey = record.isNew ? record.tempId : record.ipId;
+        const isRowEditing = isEditing && editingId === rowKey;
 
-    return (
-      <div key={rowKey} style={{ padding: '10px 0' }}>
-        <Division flex={true} gap={10} alignItems={'center'}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            {isRowEditing ? (
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <div style={{ flex: 1 }}>{row.rowNo}</div>
-                <div style={{ flex: 2 }}>
-                  <Input
-                    value={editingValue}
-                    onChange={(e) => setEditingValue(e.target.value)}
-                    maxLength={100}
-                  />
-                </div>
-                <div style={{ flex: 3 }}>
-                  <Input
-                    value={editingLabel}
-                    onChange={(e) => setEditingLabel(e.target.value)}
-                    maxLength={100}
-                  />
-                </div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <div style={{ wordBreak: 'break-all', flex: 1 }}>
-                  {row.rowNo}
-                </div>
-                <div style={{ wordBreak: 'break-all', flex: 2 }}>
-                  {row.ip}
-                </div>
-                <div style={{ wordBreak: 'break-all', flex: 3 }}>
-                  {row.label}
-                </div>
-              </div>
-            )}
-          </div>
+        return isRowEditing ? (
+          <Input
+            value={editingValue}
+            onChange={(e) => setEditingValue(e.target.value)}
+            maxLength={100}
+          />
+        ) : (
+          text
+        );
+      },
+    },
+    {
+      title: 'Label',
+      dataIndex: 'label',
+      key: 'label',
+      width: '32%',
+      render: (text, record) => {
+        const rowKey = record.isNew ? record.tempId : record.ipId;
+        const isRowEditing = isEditing && editingId === rowKey;
 
-          {isEditing &&
-            (!isRowEditing ? (
-              <Division flex={true} gap={4} justifyContent={'center'}>
-                <Buttons.IconEdit onClick={() => onStartEdit(row)} />
-                <Buttons.IconDeleteRed onClick={() => openDelete(row)} />
-              </Division>
-            ) : (
-              <Division flex={true} gap={4} justifyContent={'center'}>
-                <Buttons.IconSave onClick={onSaveRowEdit} disabled={saveLoading} />
-                <Buttons.IconCancel
-                  onClick={onCancelRowEdit}
-                  disabled={saveLoading}
-                />
-              </Division>
-            ))}
-        </Division>
+        return isRowEditing ? (
+          <Input
+            value={editingLabel}
+            onChange={(e) => setEditingLabel(e.target.value)}
+            maxLength={100}
+          />
+        ) : (
+          text || '-'
+        );
+      },
+    },
+    {
+      title: intlObj.get(message['store.manage']) || '관리',
+      key: 'manage',
+      width: '20%',
+      align: 'center',
+      render: (_, record) => {
+        const rowKey = record.isNew ? record.tempId : record.ipId;
+        const isRowEditing = isEditing && editingId === rowKey;
 
-        <div style={{ borderBottom: '1px solid #DDDDDD', marginTop: 10 }} />
-      </div>
-    );
-  };
+        if (!isEditing) return '-';
+
+        return !isRowEditing ? (
+          <Division flex={true} gap={4} justifyContent={'center'}>
+            <Buttons.IconEdit onClick={() => onStartEdit(record)} />
+            <Buttons.IconDeleteRed onClick={() => openDelete(record)} />
+          </Division>
+        ) : (
+          <Division flex={true} gap={4} justifyContent={'center'}>
+            <Buttons.IconSave onClick={onSaveRowEdit} disabled={saveLoading} />
+            <Buttons.IconCancel
+              onClick={onCancelRowEdit}
+              disabled={saveLoading}
+            />
+          </Division>
+        );
+      },
+    },
+  ];
 
   return (
     <div>
@@ -570,25 +590,17 @@ const DrmAllowIpSection = ({ svcId, isEditing, setIsEditing }) => {
         </div>
       ) : (
         <Division flex={true} gap={20} alignItems={'flex-start'}>
-          {columns.map((col, colIdx) => (
-            <div key={colIdx} style={{ flex: 1, minWidth: 0 }}>
-              <div>
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: '10px',
-                    marginRight: '56px',
-                    fontWeight: 600,
-                    paddingBottom: '6px',
-                  }}
-                >
-                  <div style={{ flex: 1 }}>No.</div>
-                  <div style={{ flex: 2 }}>IP</div>
-                  <div style={{ flex: 3 }}>Label</div>
-                </div>
-                {col.map(renderRow)}
-              </div>
-            </div>
+          {splitColumns.map((col, colIdx) => (
+            <Division key={colIdx} width={'50%'}>
+              <Table
+                rowKey={(record) => `${record.isNew ? record.tempId : record.ipId}`}
+                columns={buildColumns()}
+                dataSource={col}
+                pagination={false}
+                type={'normal'}
+                placeholderBorder={false}
+              />
+            </Division>
           ))}
         </Division>
       )}
