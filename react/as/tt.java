@@ -1,391 +1,334 @@
-알림보내는 부부만 추출해서 리펙토링하려고하는데 잘했는지 봐줘
+import lombok.Builder;
+import lombok.Getter;
+
+import java.util.Collections;
+import java.util.List;
+
+@Getter
+@Builder
+public class ApiNotificationContext {
+    private Long svcId;
+    private Long keyId;
+    private String empNo;
+    private String serviceName;
+    private String url;
+    private List<String> targetUserList;
+
+    public static ApiNotificationContext empty(Long svcId, Long keyId, String empNo) {
+        return ApiNotificationContext.builder()
+                .svcId(svcId)
+                .keyId(keyId)
+                .empNo(empNo)
+                .serviceName("")
+                .url("")
+                .targetUserList(Collections.emptyList())
+                .build();
+    }
+
+    public boolean hasTargetUsers() {
+        return targetUserList != null && !targetUserList.isEmpty();
+    }
+
+    public String getFirstTargetUser() {
+        return hasTargetUsers() ? targetUserList.get(0) : "";
+    }
+}
+
+import lombok.Builder;
+import lombok.Getter;
+
+@Getter
+@Builder
+public class ApiNotificationCommand {
+    private String cubeTitle;
+    private String cubeMessage;
+    private String cubeMessage1;
+
+    private boolean sendCube;
+    private boolean sendWorkplace;
+
+    private String workplaceTitleKo;
+    private String workplaceTitleEn;
+    private String workplaceTitleJa;
+
+    private String workplaceMessageKo;
+    private String workplaceMessageEn;
+    private String workplaceMessageJa;
+}
 
 
-    /**
-     * 구독 신청
-     * @param hcpApiSubList
-     * @param account
-     */
-    public void subscribe(List<HcpApiSub> hcpApiSubList, Account account) throws Exception{
-        Map<Long, String> svcTypeCacheMap = Maps.newHashMap();
-        Set<Long> svcIds = new HashSet<>();
-        String loginEmpNo = account.getAccountId();
-        Set<HcpApiKeySys> hcpApiKeySysSet = new HashSet<>();
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
-        hcpApiSubList.forEach(it -> {
-            svcIds.add(it.getSvcId());
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
-            it.setEmpNo(loginEmpNo);
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class ApiNotificationService {
 
-            long svcId = it.getSvcId();
-            String svcType = svcTypeCacheMap.computeIfAbsent(
-                    svcId,
-                    hcpApiSvcMapper::getHcpSvcType
-            );
+    private final HcpApiMyPageMapper hcpApiMyPageMapper;
+    private final HcpApiSvcMapper hcpApiSvcMapper;
+    private final CubeNotiService cubeNotiService;
+    private final CommonService commonService;
+    private final AccountUtil accountUtil;
 
-            if("DRM".equalsIgnoreCase(svcType)){
-                String resultStatus = hcpApiSysEmpNoService.verifySysEmpNo(it.getKeyId(), it.getSysEmpNo());
-                if(!resultStatus.equals("VALID")){
-                    throw new RestException(BAD_REQUEST, resultStatus);
-                }
-                hcpApiKeySysSet.add(HcpApiKeySys.builder()
-                        .svcId(it.getSvcId())
-                        .keyId(it.getKeyId())
-                        .sysEmpNo(it.getSysEmpNo())
-                        .build());
-            }
+    // 외부 주입값이라고 가정
+    private final String linkUrl = "https://your-host/";
+    private final String cubeChannelId = "your-channel-id";
 
-            hcpApiSubMapper.mergeApiSub(it);
-        });
+    public ApiNotificationContext buildContext(Long svcId, Long keyId, String empNo) {
+        Map<String, Object> queryParam = Map.of(
+                "svcId", svcId,
+                "keyId", keyId,
+                "empNo", empNo
+        );
 
-        for (HcpApiKeySys target : hcpApiKeySysSet) {
-            mergeSysEmpNoMapping(target);
+        List<String> userList = hcpApiMyPageMapper.getMyRegistUserSub(queryParam);
+
+        if (CollectionUtils.isEmpty(userList)) {
+            log.info("알림 대상 사용자가 없습니다. svcId={}, keyId={}, empNo={}", svcId, keyId, empNo);
+            return ApiNotificationContext.empty(svcId, keyId, empNo);
         }
 
-        for (Long svcId : svcIds) {
-            commonService.actionHistory(svcId, "SRE", loginEmpNo, "구독 신청이 완료되었습니다.");
+        List<Map<String, Object>> svcDetailList = hcpApiSvcMapper.selectSvcInfDtl(svcId);
+        if (CollectionUtils.isEmpty(svcDetailList)) {
+            throw new RestException(ResponseCode.BAD_REQUEST, "서비스 정보를 찾을 수 없습니다. svcId=" + svcId);
+        }
 
-            String url = linkUrl + "apps/hcp-web-api-store/api/detail/"+svcId;
-            List<String> mngList =  getManagerList(svcId);
-            if( CollectionUtils.isEmpty(mngList )){
-                continue;
-            }
+        String serviceName = (String) svcDetailList.get(0).get("svcNm");
+        String url = linkUrl + "apps/hcp-web-api-store/api/detail/" + svcId;
 
-            List<Map<String, Object>> hcpApiSvcDtl = hcpApiSvcMapper.selectSvcInfDtl(svcId);
-            String serviceName = (String) hcpApiSvcDtl.get(0).get("svcNm");
+        return ApiNotificationContext.builder()
+                .svcId(svcId)
+                .keyId(keyId)
+                .empNo(empNo)
+                .serviceName(serviceName)
+                .url(url)
+                .targetUserList(userList)
+                .build();
+    }
 
-            Map<String, Object> templateHashMap = new HashMap<>();
-            templateHashMap.put("title", "**API Store 구독 신청 알림**");
-            templateHashMap.put("message", serviceName + "의 구독이 신청되었습니다");
+    public void notify(ApiNotificationContext context, ApiNotificationCommand command, Account account) {
+        if (context == null || !context.hasTargetUsers()) {
+            log.info("알림 스킵 - 대상 사용자 없음. svcId={}", context != null ? context.getSvcId() : null);
+            return;
+        }
 
-            String userNm = account.getAccountName() + " ("+ loginEmpNo +")";
+        if (command.isSendCube()) {
+            sendCubeNotification(context, command);
+        }
 
-            templateHashMap.put("user_id", mngList.toArray(new String[0]));
-            templateHashMap.put("svcNm", serviceName);
-            templateHashMap.put("userNm",  userNm);
-            templateHashMap.put("urlLink", url);
-            LocalDateTime dateTime = LocalDateTime.now();
-            templateHashMap.put("regDate", dateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) );
-            templateHashMap.put("channelId", cubeChannelId);
-
-            cubeNotiService.notificate(TEMPLATE_SUBSCRIBE_PATH, templateHashMap);
-
-            templateHashMap.put("channelId", "");
-            cubeNotiService.notificate(TEMPLATE_SUBSCRIBE_PATH, templateHashMap);
+        if (command.isSendWorkplace()) {
+            sendWorkplaceNotification(context, command, account);
         }
     }
 
-    private List<String> getManagerList(Long svcId) {
-        List<HcpApiSvcMng> data = apiSvcMngMapper.getManagerEmpNoList(svcId);
-        if( CollectionUtils.isEmpty(data)){
-            return new ArrayList<>();
+    private void sendCubeNotification(ApiNotificationContext context, ApiNotificationCommand command) {
+        Map<String, Object> templateMap = new HashMap<>();
+        templateMap.put("title", command.getCubeTitle());
+        templateMap.put("message", command.getCubeMessage());
+        templateMap.put("urlLink", context.getUrl());
+
+        if (StringUtils.hasText(command.getCubeMessage1())) {
+            templateMap.put("message1", command.getCubeMessage1());
         }
-        return data.stream().map(HcpApiSvcMng::getEmpNo).collect(Collectors.toList());
+
+        try {
+            // 채널 알림
+            templateMap.put("userId", "");
+            templateMap.put("channelId", cubeChannelId);
+            cubeNotiService.notificate(templateMap);
+
+            // 개인 알림
+            templateMap.put("userId", context.getFirstTargetUser());
+            templateMap.put("channelId", "");
+            cubeNotiService.notificate(templateMap);
+
+            log.info("Cube 알림 발송 완료. svcId={}, userId={}", context.getSvcId(), context.getFirstTargetUser());
+        } catch (Exception e) {
+            log.error("Cube 알림 발송 실패. svcId={}", context.getSvcId(), e);
+            throw new RestException(ResponseCode.INTERNAL_SERVER_ERROR, "Cube 알림 발송 실패");
+        }
     }
 
-
-    /**
-     * 구독 승인
-     *
-     * @param hcpApiSubList
-     * @param empNo
-     * @param account
-     * @throws Exception
-     */
-    public void confirm(List<HcpApiSub> hcpApiSubList, String empNo, Account account) throws Exception {
-        Set<Long> svcIds = new HashSet<>();
-        Map<Long, String> svcTypeCacheMap = Maps.newHashMap();
-
-        Set<HcpApiKeySys> hcpApiKeySysSet = new HashSet<>();
-
-        int updateCnt = 0;
-        for (HcpApiSub it : hcpApiSubList) {
-            it.setEmpNo(empNo);
-            it.setBeforeSubStatCd("APR");
-
-            long svcId = it.getSvcId();
-            svcIds.add(svcId);
-            String svcType = svcTypeCacheMap.computeIfAbsent(svcId, k -> hcpApiSvcMapper.getHcpSvcType(svcId));
-            if ("CTS".equalsIgnoreCase(svcType)) {
-                Long keyId = it.getKeyId();
-                // 1. 구독 요청 API 키 정보 조회
-                CtsSubKeyInfo keyInfo = hcpApiTokenMapper.getCtsSubKeyInfo(keyId);
-
-                if (keyInfo == null) {
-                    log.error("keyInfo is null - keyId : {}", keyId);
-                    throw new RestException(ResponseCode.BAD_REQUEST, "keyInfo is null");
-                }
-
-                // 2. CTS구독 프로세스
-                try {
-                    // 3. 기존 구독 여부 확인
-                    boolean checkResult = ctsService.checkAlreadySubscription(keyId);
-                    // 4. 구독중이 아니라면 CTS 구독
-                    if (!checkResult) {
-                        ctsService.subscriptionCts(keyInfo);
-                    }
-                    // 5. 이미 구독중이라면 PASS
-                    else {
-                        log.info("already subscribed cts for keyId: {}", hcpApiSubList.get(0).getKeyId());
-                    }
-                } catch (Exception e) {
-                    log.error("cts subscription error! - {}", e.getMessage());
-                    throw new RestException(ResponseCode.INTERNAL_SERVER_ERROR, "cts subscription fail");
-                }
-            }
-
-            if("DRM".equalsIgnoreCase(svcType)) {
-                hcpApiKeySysSet.add(buildDrmConfirmTarget(it));
-            }
-
-            int cnt = hcpApiSubMapper.updateApiSub(it);
-            updateCnt += cnt;
-        }
-
-        if( updateCnt == 0){
-            throw new RestException(ResponseCode.BAD_REQUEST, "구독 승인된 API가 없습니다. 잘못된 요청입니다.");
-        }
-
-        for (HcpApiKeySys target : hcpApiKeySysSet) {
-            updateIfApiKey(target);
-        }
-
-        hcpApiQosService.registApiQosWithDefaultBySub(hcpApiSubList);
-
-        String actCd = "SPR";
-        String memo = "구독 신청이 승인되었습니다";
-        for (Long svcId : svcIds) {
-                commonService.actionHistory(svcId, actCd, empNo, memo);
-
-                String url = linkUrl + "apps/hcp-web-api-store/api/detail/"+svcId;
-                Map<String, Object> hashMap = Map.of( "svcId", svcId, "keyId", hcpApiSubList.get(0).getKeyId(), "empNo", empNo);
-                List<String> userList = hcpApiMyPageMapper.getMyRegistUserSub(hashMap);
-                if( CollectionUtils.isEmpty( userList) ){
-                    continue;
-                }
-
-                List<Map<String, Object>> hcpApiSvcDtl = hcpApiSvcMapper.selectSvcInfDtl(svcId);
-                String serviceName = (String) hcpApiSvcDtl.get(0).get("svcNm");
-
-                Map<String, Object> templateHashMap = new HashMap<>();
-                templateHashMap.put("title", "**API Store 구독 신청 결과 알림**");
-                templateHashMap.put("message", serviceName + "의 구독 신청이 승인되었습니다.");
-                templateHashMap.put("message1", "API G/W 에 반영되는데 1~2분 가량 소요됩니다.");
-                templateHashMap.put("urlLink", url);
-                templateHashMap.put("userId", userList.get(0));
-                templateHashMap.put("channelId", cubeChannelId);
-                cubeNotiService.notificate(templateHashMap);
-
-                templateHashMap.put("channelId", "");
-                cubeNotiService.notificate(templateHashMap);
-
+    private void sendWorkplaceNotification(ApiNotificationContext context, ApiNotificationCommand command, Account account) {
+        try {
             commonService.workplaceNotify(
                     accountUtil.getSiteIdDefaultIfNull(account),
-                    "[승인]" + serviceName+ "의 구독 신청이 승인되었습니다.",
-                    "[Approve]" + serviceName+ " subscription approved",
-                    "[Approve]" + serviceName+ " subscription approved",
+                    command.getWorkplaceTitleKo(),
+                    command.getWorkplaceTitleEn(),
+                    command.getWorkplaceTitleJa(),
                     NOTI_API_DETAIL_CONTENTS, NOTI_API_DETAIL_CONTENTS, NOTI_API_DETAIL_CONTENTS,
-                    "API G/W 에 반영되는데 1~2분 가량 소요됩니다.",
-                    "API G/W Adapted 1~2 minutes later",
-                    "API G/W Adapted 1~2 minutes later",
-                    url,
-                    userList
+                    command.getWorkplaceMessageKo(),
+                    command.getWorkplaceMessageEn(),
+                    command.getWorkplaceMessageJa(),
+                    context.getUrl(),
+                    context.getTargetUserList()
             );
 
+            log.info("Workplace 알림 발송 완료. svcId={}, userCount={}", context.getSvcId(), context.getTargetUserList().size());
+        } catch (Exception e) {
+            log.error("Workplace 알림 발송 실패. svcId={}", context.getSvcId(), e);
+            throw new RestException(ResponseCode.INTERNAL_SERVER_ERROR, "Workplace 알림 발송 실패");
         }
     }
+}
 
-    /**
-     * 구독 해제
-     *
-     * @param hcpApiSubList
-     * @param empNo
-     */
-    public void unsubscribe(List<HcpApiSub> hcpApiSubList, String empNo) {
-        Map<Long, String> svcTypeCacheMap = Maps.newHashMap();
-        Set<Long> svcIds = new HashSet<>();
 
-        Set<HcpApiKeySys> hcpApiKeySysSet = new HashSet<>();
+String actCd = "SPR";
+String memo = "구독 신청이 승인되었습니다";
 
-        int updateCnt = 0;
-        for (HcpApiSub it : hcpApiSubList) {
-            it.setEmpNo(empNo);
-            it.setBeforeSubStatCd("NOR");
+for (Long svcId : svcIds) {
+    commonService.actionHistory(svcId, actCd, empNo, memo);
 
-            Long keyId = it.getKeyId();
-            Long svcId = it.getSvcId();
-            svcIds.add(svcId);
-            String svcType = svcTypeCacheMap.computeIfAbsent(svcId, k -> hcpApiSvcMapper.getHcpSvcType(svcId));
-            if ("CTS".equalsIgnoreCase(svcType)) {
-                CtsSubKeyInfo keyInfo = hcpApiTokenMapper.getCtsSubKeyInfo(keyId);
+    ApiNotificationContext context = apiNotificationService.buildContext(
+            svcId,
+            hcpApiSubList.get(0).getKeyId(),
+            empNo
+    );
 
-                if (keyInfo == null) {
-                    log.error("keyInfo is null - keyId : {}", keyId);
-                    throw new RestException(ResponseCode.BAD_REQUEST, "keyInfo is null");
-                }
+    String serviceName = context.getServiceName();
 
-                // 2. CTS구독 프로세스
-                try {
-                    ctsService.unSubscriptionCts(keyInfo);
-                } catch (Exception e) {
-                    log.error("cts subscription error! - {}", e.getMessage());
-                    throw new RestException(ResponseCode.INTERNAL_SERVER_ERROR, "cts subscription fail");
-                }
-            }
+    ApiNotificationCommand command = ApiNotificationCommand.builder()
+            .sendCube(true)
+            .sendWorkplace(true)
+            .cubeTitle("**API Store 구독 신청 결과 알림**")
+            .cubeMessage(serviceName + "의 구독 신청이 승인되었습니다.")
+            .cubeMessage1("API G/W 에 반영되는데 1~2분 가량 소요됩니다.")
+            .workplaceTitleKo("[승인]" + serviceName + "의 구독 신청이 승인되었습니다.")
+            .workplaceTitleEn("[Approve]" + serviceName + " subscription approved")
+            .workplaceTitleJa("[Approve]" + serviceName + " subscription approved")
+            .workplaceMessageKo("API G/W 에 반영되는데 1~2분 가량 소요됩니다.")
+            .workplaceMessageEn("API G/W Adapted 1~2 minutes later")
+            .workplaceMessageJa("API G/W Adapted 1~2 minutes later")
+            .build();
 
-            if("DRM".equalsIgnoreCase(svcType)) {
-                hcpApiKeySysSet.add(buildDrmConfirmTarget(it));
-            }
+    apiNotificationService.notify(context, command, account);
+}
 
-            int cnt = hcpApiSubMapper.updateApiSub(it);
-            updateCnt += cnt;
-        }
 
-        if( updateCnt == 0){
-            throw new RestException(ResponseCode.BAD_REQUEST, "구독 해제된 API가 없습니다. 잘못된 요청입니다.");
-        }
+String actCd = "SEJ";
+String memo = "구독 신청이 반려되었습니다";
+String reason = hcpApiSubList.get(0).getAprvReason();
 
-        for (HcpApiKeySys target : hcpApiKeySysSet) {
-            removeSysEmpNoMapping(target);
-        }
+for (Long svcId : svcIds) {
+    commonService.actionHistory(svcId, actCd, empNo, memo);
 
-        hcpApiQosService.deleteApiQosByPubIdAndKeyId(hcpApiSubList);
+    ApiNotificationContext context = apiNotificationService.buildContext(
+            svcId,
+            hcpApiSubList.get(0).getKeyId(),
+            empNo
+    );
 
-        for (Long svcId : svcIds) {
-            commonService.actionHistory(svcId, "CCL", empNo, "구독 신청이 해제되었습니다");
-        }
+    String serviceName = context.getServiceName();
+    String rejectMessage = "반려메시지 : " + reason;
+
+    ApiNotificationCommand command = ApiNotificationCommand.builder()
+            .sendCube(true)
+            .sendWorkplace(true)
+            .cubeTitle("**API Store 구독 신청 결과 알림**")
+            .cubeMessage(serviceName + "의 구독 신청이 반려되었습니다.")
+            .cubeMessage1(rejectMessage)
+            .workplaceTitleKo("[반려]" + serviceName + "의 구독 신청이 반려되었습니다.")
+            .workplaceTitleEn("[Reject]" + serviceName + " subscription rejected")
+            .workplaceTitleJa("[Reject]" + serviceName + " subscription rejected")
+            .workplaceMessageKo(rejectMessage)
+            .workplaceMessageEn(rejectMessage)
+            .workplaceMessageJa(rejectMessage)
+            .build();
+
+    apiNotificationService.notify(context, command, account);
+}
+
+
+public ApiNotificationContext buildManagerContext(Long svcId) {
+    List<HcpApiSvcMng> managerList = apiSvcMngMapper.getManagerEmpNoList(svcId);
+    if (CollectionUtils.isEmpty(managerList)) {
+        log.info("서비스 관리자 정보가 없습니다. svcId={}", svcId);
+        return ApiNotificationContext.empty(svcId, null, null);
     }
 
-    /**
-     * 구독 승인 반려
-     *
-     * @param hcpApiSubList
-     * @param empNo
-     * @param account
-     * @throws Exception
-     */
-    public void reject(List<HcpApiSub> hcpApiSubList, String empNo, Account account) throws Exception {
-        Map<Long, String> svcTypeCacheMap = Maps.newHashMap();
-        Set<Long> svcIds = new HashSet<>();
-        Set<HcpApiKeySys> hcpApiKeySysSet = new HashSet<>();
+    List<String> targetUsers = managerList.stream()
+            .map(HcpApiSvcMng::getEmpNo)
+            .collect(Collectors.toList());
 
-        int updateCnt = 0;
-        for (HcpApiSub it : hcpApiSubList) {
-            it.setEmpNo(empNo);
-            it.setBeforeSubStatCd("APR");
-
-            Long svcId = it.getSvcId();
-            String svcType = svcTypeCacheMap.computeIfAbsent(svcId, k -> hcpApiSvcMapper.getHcpSvcType(svcId));
-
-            if ("DRM".equalsIgnoreCase(svcType)) {
-                hcpApiKeySysSet.add(buildDrmConfirmTarget(it));
-            }
-            int cnt = hcpApiSubMapper.updateApiSub(it);
-            updateCnt += cnt;
-
-            svcIds.add(it.getSvcId());
-        }
-
-        if (updateCnt == 0) {
-            throw new RestException(ResponseCode.BAD_REQUEST, "반려된 API가 없습니다. 잘못된 요청입니다.");
-        }
-
-        for (HcpApiKeySys target : hcpApiKeySysSet) {
-            removeSysEmpNoMapping(target);
-        }
-        String actCd = "SEJ";
-        String memo = "구독 신청이 반려되었습니다";
-        String reason = hcpApiSubList.get(0).getAprvReason();
-        for (Long svcId : svcIds) {
-
-            commonService.actionHistory(svcId, actCd, empNo, memo);
-            Map<String, Object> resultMap = commonService.notifyCubeMsg(svcId, hcpApiSubList.get(0).getKeyId(), empNo, "**API Store 구독 신청 결과 알림**",
-                    new String[]{"의 구독 신청이 반려되었습니다.", reason});
-
-//            Map<String, Object> hashMap = Map.of("svcId", svcId, "keyId", hcpApiSubList.get(0).getKeyId(), "empNo", empNo);
-//            List<String> userList = hcpApiMyPageMapper.getMyRegistUserSub(hashMap);
-//            if( CollectionUtils.isEmpty( userList) ){
-//                continue;
-//            }
-//
-//            List<Map<String, Object>> hcpApiSvcDtl = hcpApiSvcMapper.selectSvcInfDtl(svcId);
-//
-//            String serviceName = (String) hcpApiSvcDtl.get(0).get("svcNm");
-//            Map<String, Object> templateHashMap = new HashMap<>();
-//            templateHashMap.put("title", "**API Store 구독 신청 결과 알림**");
-//            templateHashMap.put("message", serviceName + "의 구독 신청이 반려되었습니다.");
-//            templateHashMap.put("message1", "반려메시지 : " + reason);
-//
-//            String url = linkUrl + "apps/hcp-web-api-store/api/detail/" + svcId;
-//            for (int i = 0; i < 2; i++) {
-//                templateHashMap.put("urlLink", url);
-//                if (i == 0) {
-//                    templateHashMap.put("userId", "");
-//                    String channelId = cubeChannelId;
-//                    templateHashMap.put("channelId", channelId);
-//                } else if (i == 1) {
-//                    templateHashMap.put("userId", userList.get(0));
-//                    templateHashMap.put("channelId", "");
-//                }
-//                cubeNotiService.notificate(templateHashMap);
-//            }
-            if(CollectionUtils.isEmpty((Collection<?>) resultMap)){
-                commonService.workplaceNotify(
-                        accountUtil.getSiteIdDefaultIfNull(account),
-                        "[반려]" + resultMap.get("serviceName") + "의 구독 신청이 반려되었습니다.",
-                        "[Reject]" + resultMap.get("serviceName") + " subscription rejected",
-                        "[Reject]" + resultMap.get("serviceName") + " subscription rejected",
-                        NOTI_API_DETAIL_CONTENTS, NOTI_API_DETAIL_CONTENTS, NOTI_API_DETAIL_CONTENTS,
-                        "rejectMessage  : " + reason,
-                        "rejectMessage  : " + reason,
-                        "rejectMessage  : " + reason,
-                        (String) resultMap.get("url"),
-                        (List<String>) resultMap.get("userList")
-                );
-            }
-
-        }
+    List<Map<String, Object>> svcDetailList = hcpApiSvcMapper.selectSvcInfDtl(svcId);
+    if (CollectionUtils.isEmpty(svcDetailList)) {
+        throw new RestException(ResponseCode.BAD_REQUEST, "서비스 정보를 찾을 수 없습니다. svcId=" + svcId);
     }
 
-추춘 메소드
+    String serviceName = (String) svcDetailList.get(0).get("svcNm");
+    String url = linkUrl + "apps/hcp-web-api-store/api/detail/" + svcId;
 
-public Map<String, Object> notifyCubeMsg(Long svcId, Long keyId, String empNo, String title, String[] msgArr) throws Exception {
-		Map<String, Object> resultMap = new HashMap<>();
-		Map<String, Object> hashMap = Map.of("svcId", svcId, "keyId", keyId, "empNo", empNo);
-		List<String> userList = hcpApiMyPageMapper.getMyRegistUserSub(hashMap);
-		if (CollectionUtils.isEmpty(userList)) {
-			return null;
-		}
-		resultMap.put("userList", userList);
+    return ApiNotificationContext.builder()
+            .svcId(svcId)
+            .serviceName(serviceName)
+            .url(url)
+            .targetUserList(targetUsers)
+            .build();
+}
 
+for (Long svcId : svcIds) {
+    commonService.actionHistory(svcId, "SRE", loginEmpNo, "구독 신청이 완료되었습니다.");
 
-		List<Map<String, Object>> hcpApiSvcDtl = hcpApiSvcMapper.selectSvcInfDtl(svcId);
+    ApiNotificationContext context = apiNotificationService.buildManagerContext(svcId);
+    if (!context.hasTargetUsers()) {
+        continue;
+    }
 
-		String serviceName = (String) hcpApiSvcDtl.get(0).get("svcNm");
-		resultMap.put("serviceName", serviceName);
-		Map<String, Object> templateHashMap = new HashMap<>();
-		templateHashMap.put("title", title);
-		templateHashMap.put("message", serviceName + msgArr[0]);
-		if(msgArr.length > 1){
-			templateHashMap.put("message1", "반려메시지 : " + msgArr[1]);
-		}
+    String userNm = account.getAccountName() + " (" + loginEmpNo + ")";
+    String serviceName = context.getServiceName();
 
-		String url = linkUrl + "apps/hcp-web-api-store/api/detail/" + svcId;
-		resultMap.put("url", url);
-		for (int i = 0; i < 2; i++) {
-			templateHashMap.put("urlLink", url);
-			if (i == 0) {
-				templateHashMap.put("userId", "");
-				String channelId = cubeChannelId;
-				templateHashMap.put("channelId", channelId);
-			} else if (i == 1) {
-				templateHashMap.put("userId", userList.get(0));
-				templateHashMap.put("channelId", "");
-			}
-			cubeNotiService.notificate(templateHashMap);
-		}
-		return resultMap;
-	}
+    Map<String, Object> templateMap = new HashMap<>();
+    templateMap.put("title", "**API Store 구독 신청 알림**");
+    templateMap.put("message", serviceName + "의 구독이 신청되었습니다");
+    templateMap.put("user_id", context.getTargetUserList().toArray(new String[0]));
+    templateMap.put("svcNm", serviceName);
+    templateMap.put("userNm", userNm);
+    templateMap.put("urlLink", context.getUrl());
+    templateMap.put("regDate", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+    templateMap.put("channelId", cubeChannelId);
+
+    cubeNotiService.notificate(TEMPLATE_SUBSCRIBE_PATH, templateMap);
+
+    templateMap.put("channelId", "");
+    cubeNotiService.notificate(TEMPLATE_SUBSCRIBE_PATH, templateMap);
+}
 
 
+public void notifySubscriptionRequestToManagers(Long svcId, Account account, String loginEmpNo) {
+    ApiNotificationContext context = buildManagerContext(svcId);
+    if (!context.hasTargetUsers()) {
+        return;
+    }
 
+    String userNm = account.getAccountName() + " (" + loginEmpNo + ")";
+
+    Map<String, Object> templateMap = new HashMap<>();
+    templateMap.put("title", "**API Store 구독 신청 알림**");
+    templateMap.put("message", context.getServiceName() + "의 구독이 신청되었습니다");
+    templateMap.put("user_id", context.getTargetUserList().toArray(new String[0]));
+    templateMap.put("svcNm", context.getServiceName());
+    templateMap.put("userNm", userNm);
+    templateMap.put("urlLink", context.getUrl());
+    templateMap.put("regDate", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+
+    try {
+        templateMap.put("channelId", cubeChannelId);
+        cubeNotiService.notificate(TEMPLATE_SUBSCRIBE_PATH, templateMap);
+
+        templateMap.put("channelId", "");
+        cubeNotiService.notificate(TEMPLATE_SUBSCRIBE_PATH, templateMap);
+
+        log.info("구독 신청 관리자 알림 완료. svcId={}, managerCount={}", svcId, context.getTargetUserList().size());
+    } catch (Exception e) {
+        log.error("구독 신청 관리자 알림 실패. svcId={}", svcId, e);
+        throw new RestException(ResponseCode.INTERNAL_SERVER_ERROR, "구독 신청 관리자 알림 실패");
+    }
+}
