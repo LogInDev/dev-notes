@@ -1,290 +1,391 @@
-spring:
-  application:
-    name: daemon-project
+알림보내는 부부만 추출해서 리펙토링하려고하는데 잘했는지 봐줘
 
-scheduler:
-  unsubscribe:
-    cron: "0 30 7 * * *"
-    zone: "Asia/Seoul"
 
-external:
-  unsubscribe:
-    base-url: "http://other-project"
-    path: "/api/subscription/unsubscribe"
-    connect-timeout-ms: 3000
-    read-timeout-ms: 5000
+    /**
+     * 구독 신청
+     * @param hcpApiSubList
+     * @param account
+     */
+    public void subscribe(List<HcpApiSub> hcpApiSubList, Account account) throws Exception{
+        Map<Long, String> svcTypeCacheMap = Maps.newHashMap();
+        Set<Long> svcIds = new HashSet<>();
+        String loginEmpNo = account.getAccountId();
+        Set<HcpApiKeySys> hcpApiKeySysSet = new HashSet<>();
 
-package com.example.daemon.config;
+        hcpApiSubList.forEach(it -> {
+            svcIds.add(it.getSvcId());
 
-import org.springframework.context.annotation.Configuration;
-import org.springframework.scheduling.annotation.EnableScheduling;
+            it.setEmpNo(loginEmpNo);
 
-@Configuration
-@EnableScheduling
-public class SchedulingConfig {
-}
-
-package com.example.daemon.config;
-
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.web.client.RestTemplateBuilder;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.web.client.RestTemplate;
-
-import java.time.Duration;
-
-@Configuration
-public class RestTemplateConfig {
-
-    @Bean
-    public RestTemplate restTemplate(
-            RestTemplateBuilder builder,
-            @Value("${external.unsubscribe.connect-timeout-ms}") int connectTimeoutMs,
-            @Value("${external.unsubscribe.read-timeout-ms}") int readTimeoutMs
-    ) {
-        return builder
-                .setConnectTimeout(Duration.ofMillis(connectTimeoutMs))
-                .setReadTimeout(Duration.ofMillis(readTimeoutMs))
-                .build();
-    }
-}
-
-package com.example.daemon.domain;
-
-public enum UnsubscribeProcessStatus {
-    READY,
-    PROCESSING,
-    SUCCESS,
-    FAIL
-}
-package com.example.daemon.client;
-
-import com.example.daemon.client.dto.UnsubscribeRequest;
-import com.example.daemon.client.dto.UnsubscribeResponse;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestTemplate;
-
-@Slf4j
-@Component
-@RequiredArgsConstructor
-public class UnsubscribeApiClient {
-
-    private final RestTemplate restTemplate;
-
-    @Value("${external.unsubscribe.base-url}")
-    private String baseUrl;
-
-    @Value("${external.unsubscribe.path}")
-    private String path;
-
-    public void unsubscribe(Long userId, String subscriptionId) {
-        String url = baseUrl + path;
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.add(HttpHeaders.CONTENT_TYPE, "application/json");
-
-        UnsubscribeRequest request = new UnsubscribeRequest(userId, subscriptionId);
-        HttpEntity<UnsubscribeRequest> entity = new HttpEntity<>(request, headers);
-
-        ResponseEntity<UnsubscribeResponse> response = restTemplate.exchange(
-                url,
-                HttpMethod.POST,
-                entity,
-                UnsubscribeResponse.class
-        );
-
-        if (!response.getStatusCode().is2xxSuccessful()) {
-            throw new IllegalStateException("구독 해제 API 호출 실패. status=" + response.getStatusCode());
-        }
-
-        UnsubscribeResponse body = response.getBody();
-
-        if (body == null) {
-            throw new IllegalStateException("구독 해제 API 응답 body가 없습니다.");
-        }
-
-        if (!body.isSuccess()) {
-            throw new IllegalStateException(
-                    "구독 해제 API 비즈니스 실패. code=" + body.getCode() + ", message=" + body.getMessage()
-            );
-        }
-
-        log.info("구독 해제 API 성공. userId={}, subscriptionId={}", userId, subscriptionId);
-    }
-}
-package com.example.daemon.mapper;
-
-import com.example.daemon.domain.UnsubscribeTarget;
-import org.apache.ibatis.annotations.Mapper;
-import org.apache.ibatis.annotations.Param;
-
-import java.util.List;
-
-@Mapper
-public interface UnsubscribeBatchMapper {
-
-    List<UnsubscribeTarget> findReadyTargets();
-
-    int updateStatus(@Param("id") Long id, @Param("status") String status);
-
-    int updateStatusWithMessage(
-            @Param("id") Long id,
-            @Param("status") String status,
-            @Param("failReason") String failReason
-    );
-}
-
-<?xml version="1.0" encoding="UTF-8" ?>
-<!DOCTYPE mapper
-        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
-        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-
-<mapper namespace="com.example.daemon.mapper.UnsubscribeBatchMapper">
-
-    <resultMap id="unsubscribeTargetMap" type="com.example.daemon.domain.UnsubscribeTarget">
-        <id property="id" column="id"/>
-        <result property="userId" column="user_id"/>
-        <result property="subscriptionId" column="subscription_id"/>
-        <result property="status" column="status"/>
-    </resultMap>
-
-    <select id="findReadyTargets" resultMap="unsubscribeTargetMap">
-        SELECT
-            id,
-            user_id,
-            subscription_id,
-            status
-        FROM subscription_batch_target
-        WHERE status = 'READY'
-    </select>
-
-    <update id="updateStatus">
-        UPDATE subscription_batch_target
-        SET
-            status = #{status},
-            updated_at = NOW()
-        WHERE id = #{id}
-    </update>
-
-    <update id="updateStatusWithMessage">
-        UPDATE subscription_batch_target
-        SET
-            status = #{status},
-            fail_reason = #{failReason},
-            updated_at = NOW()
-        WHERE id = #{id}
-    </update>
-
-</mapper>
-package com.example.daemon.service;
-
-import com.example.daemon.client.UnsubscribeApiClient;
-import com.example.daemon.domain.UnsubscribeProcessStatus;
-import com.example.daemon.domain.UnsubscribeTarget;
-import com.example.daemon.mapper.UnsubscribeBatchMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-
-import java.util.List;
-
-@Slf4j
-@Service
-@RequiredArgsConstructor
-public class UnsubscribeBatchService {
-
-    private final UnsubscribeBatchMapper unsubscribeBatchMapper;
-    private final UnsubscribeApiClient unsubscribeApiClient;
-
-    public void process() {
-        List<UnsubscribeTarget> targets = unsubscribeBatchMapper.findReadyTargets();
-
-        if (targets == null || targets.isEmpty()) {
-            log.info("구독 해제 대상 없음");
-            return;
-        }
-
-        log.info("구독 해제 대상 {}건 조회", targets.size());
-
-        for (UnsubscribeTarget target : targets) {
-            processOne(target);
-        }
-    }
-
-    private void processOne(UnsubscribeTarget target) {
-        Long id = target.getId();
-        Long userId = target.getUserId();
-        String subscriptionId = target.getSubscriptionId();
-
-        try {
-            unsubscribeBatchMapper.updateStatus(id, UnsubscribeProcessStatus.PROCESSING.name());
-
-            unsubscribeApiClient.unsubscribe(userId, subscriptionId);
-
-            unsubscribeBatchMapper.updateStatus(id, UnsubscribeProcessStatus.SUCCESS.name());
-
-            log.info("구독 해제 처리 성공. id={}, userId={}, subscriptionId={}", id, userId, subscriptionId);
-
-        } catch (Exception e) {
-            String failReason = shorten(e.getMessage(), 1000);
-
-            unsubscribeBatchMapper.updateStatusWithMessage(
-                    id,
-                    UnsubscribeProcessStatus.FAIL.name(),
-                    failReason
+            long svcId = it.getSvcId();
+            String svcType = svcTypeCacheMap.computeIfAbsent(
+                    svcId,
+                    hcpApiSvcMapper::getHcpSvcType
             );
 
-            log.error("구독 해제 처리 실패. id={}, userId={}, subscriptionId={}", id, userId, subscriptionId, e);
+            if("DRM".equalsIgnoreCase(svcType)){
+                String resultStatus = hcpApiSysEmpNoService.verifySysEmpNo(it.getKeyId(), it.getSysEmpNo());
+                if(!resultStatus.equals("VALID")){
+                    throw new RestException(BAD_REQUEST, resultStatus);
+                }
+                hcpApiKeySysSet.add(HcpApiKeySys.builder()
+                        .svcId(it.getSvcId())
+                        .keyId(it.getKeyId())
+                        .sysEmpNo(it.getSysEmpNo())
+                        .build());
+            }
+
+            hcpApiSubMapper.mergeApiSub(it);
+        });
+
+        for (HcpApiKeySys target : hcpApiKeySysSet) {
+            mergeSysEmpNoMapping(target);
+        }
+
+        for (Long svcId : svcIds) {
+            commonService.actionHistory(svcId, "SRE", loginEmpNo, "구독 신청이 완료되었습니다.");
+
+            String url = linkUrl + "apps/hcp-web-api-store/api/detail/"+svcId;
+            List<String> mngList =  getManagerList(svcId);
+            if( CollectionUtils.isEmpty(mngList )){
+                continue;
+            }
+
+            List<Map<String, Object>> hcpApiSvcDtl = hcpApiSvcMapper.selectSvcInfDtl(svcId);
+            String serviceName = (String) hcpApiSvcDtl.get(0).get("svcNm");
+
+            Map<String, Object> templateHashMap = new HashMap<>();
+            templateHashMap.put("title", "**API Store 구독 신청 알림**");
+            templateHashMap.put("message", serviceName + "의 구독이 신청되었습니다");
+
+            String userNm = account.getAccountName() + " ("+ loginEmpNo +")";
+
+            templateHashMap.put("user_id", mngList.toArray(new String[0]));
+            templateHashMap.put("svcNm", serviceName);
+            templateHashMap.put("userNm",  userNm);
+            templateHashMap.put("urlLink", url);
+            LocalDateTime dateTime = LocalDateTime.now();
+            templateHashMap.put("regDate", dateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) );
+            templateHashMap.put("channelId", cubeChannelId);
+
+            cubeNotiService.notificate(TEMPLATE_SUBSCRIBE_PATH, templateHashMap);
+
+            templateHashMap.put("channelId", "");
+            cubeNotiService.notificate(TEMPLATE_SUBSCRIBE_PATH, templateHashMap);
         }
     }
 
-    private String shorten(String value, int maxLength) {
-        if (value == null) {
-            return null;
+    private List<String> getManagerList(Long svcId) {
+        List<HcpApiSvcMng> data = apiSvcMngMapper.getManagerEmpNoList(svcId);
+        if( CollectionUtils.isEmpty(data)){
+            return new ArrayList<>();
         }
-        return value.length() <= maxLength ? value : value.substring(0, maxLength);
+        return data.stream().map(HcpApiSvcMng::getEmpNo).collect(Collectors.toList());
     }
-}
 
 
-package com.example.daemon.scheduler;
+    /**
+     * 구독 승인
+     *
+     * @param hcpApiSubList
+     * @param empNo
+     * @param account
+     * @throws Exception
+     */
+    public void confirm(List<HcpApiSub> hcpApiSubList, String empNo, Account account) throws Exception {
+        Set<Long> svcIds = new HashSet<>();
+        Map<Long, String> svcTypeCacheMap = Maps.newHashMap();
 
-import com.example.daemon.service.UnsubscribeBatchService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
+        Set<HcpApiKeySys> hcpApiKeySysSet = new HashSet<>();
 
-@Slf4j
-@Component
-@RequiredArgsConstructor
-public class UnsubscribeScheduler {
+        int updateCnt = 0;
+        for (HcpApiSub it : hcpApiSubList) {
+            it.setEmpNo(empNo);
+            it.setBeforeSubStatCd("APR");
 
-    private final UnsubscribeBatchService unsubscribeBatchService;
+            long svcId = it.getSvcId();
+            svcIds.add(svcId);
+            String svcType = svcTypeCacheMap.computeIfAbsent(svcId, k -> hcpApiSvcMapper.getHcpSvcType(svcId));
+            if ("CTS".equalsIgnoreCase(svcType)) {
+                Long keyId = it.getKeyId();
+                // 1. 구독 요청 API 키 정보 조회
+                CtsSubKeyInfo keyInfo = hcpApiTokenMapper.getCtsSubKeyInfo(keyId);
 
-    @Scheduled(
-            cron = "${scheduler.unsubscribe.cron}",
-            zone = "${scheduler.unsubscribe.zone}"
-    )
-    public void run() {
-        log.info("구독 해제 스케줄 시작");
+                if (keyInfo == null) {
+                    log.error("keyInfo is null - keyId : {}", keyId);
+                    throw new RestException(ResponseCode.BAD_REQUEST, "keyInfo is null");
+                }
 
-        try {
-            unsubscribeBatchService.process();
-        } catch (Exception e) {
-            log.error("구독 해제 스케줄 전체 실행 중 오류", e);
+                // 2. CTS구독 프로세스
+                try {
+                    // 3. 기존 구독 여부 확인
+                    boolean checkResult = ctsService.checkAlreadySubscription(keyId);
+                    // 4. 구독중이 아니라면 CTS 구독
+                    if (!checkResult) {
+                        ctsService.subscriptionCts(keyInfo);
+                    }
+                    // 5. 이미 구독중이라면 PASS
+                    else {
+                        log.info("already subscribed cts for keyId: {}", hcpApiSubList.get(0).getKeyId());
+                    }
+                } catch (Exception e) {
+                    log.error("cts subscription error! - {}", e.getMessage());
+                    throw new RestException(ResponseCode.INTERNAL_SERVER_ERROR, "cts subscription fail");
+                }
+            }
+
+            if("DRM".equalsIgnoreCase(svcType)) {
+                hcpApiKeySysSet.add(buildDrmConfirmTarget(it));
+            }
+
+            int cnt = hcpApiSubMapper.updateApiSub(it);
+            updateCnt += cnt;
         }
 
-        log.info("구독 해제 스케줄 종료");
+        if( updateCnt == 0){
+            throw new RestException(ResponseCode.BAD_REQUEST, "구독 승인된 API가 없습니다. 잘못된 요청입니다.");
+        }
+
+        for (HcpApiKeySys target : hcpApiKeySysSet) {
+            updateIfApiKey(target);
+        }
+
+        hcpApiQosService.registApiQosWithDefaultBySub(hcpApiSubList);
+
+        String actCd = "SPR";
+        String memo = "구독 신청이 승인되었습니다";
+        for (Long svcId : svcIds) {
+                commonService.actionHistory(svcId, actCd, empNo, memo);
+
+                String url = linkUrl + "apps/hcp-web-api-store/api/detail/"+svcId;
+                Map<String, Object> hashMap = Map.of( "svcId", svcId, "keyId", hcpApiSubList.get(0).getKeyId(), "empNo", empNo);
+                List<String> userList = hcpApiMyPageMapper.getMyRegistUserSub(hashMap);
+                if( CollectionUtils.isEmpty( userList) ){
+                    continue;
+                }
+
+                List<Map<String, Object>> hcpApiSvcDtl = hcpApiSvcMapper.selectSvcInfDtl(svcId);
+                String serviceName = (String) hcpApiSvcDtl.get(0).get("svcNm");
+
+                Map<String, Object> templateHashMap = new HashMap<>();
+                templateHashMap.put("title", "**API Store 구독 신청 결과 알림**");
+                templateHashMap.put("message", serviceName + "의 구독 신청이 승인되었습니다.");
+                templateHashMap.put("message1", "API G/W 에 반영되는데 1~2분 가량 소요됩니다.");
+                templateHashMap.put("urlLink", url);
+                templateHashMap.put("userId", userList.get(0));
+                templateHashMap.put("channelId", cubeChannelId);
+                cubeNotiService.notificate(templateHashMap);
+
+                templateHashMap.put("channelId", "");
+                cubeNotiService.notificate(templateHashMap);
+
+            commonService.workplaceNotify(
+                    accountUtil.getSiteIdDefaultIfNull(account),
+                    "[승인]" + serviceName+ "의 구독 신청이 승인되었습니다.",
+                    "[Approve]" + serviceName+ " subscription approved",
+                    "[Approve]" + serviceName+ " subscription approved",
+                    NOTI_API_DETAIL_CONTENTS, NOTI_API_DETAIL_CONTENTS, NOTI_API_DETAIL_CONTENTS,
+                    "API G/W 에 반영되는데 1~2분 가량 소요됩니다.",
+                    "API G/W Adapted 1~2 minutes later",
+                    "API G/W Adapted 1~2 minutes later",
+                    url,
+                    userList
+            );
+
+        }
     }
-}
+
+    /**
+     * 구독 해제
+     *
+     * @param hcpApiSubList
+     * @param empNo
+     */
+    public void unsubscribe(List<HcpApiSub> hcpApiSubList, String empNo) {
+        Map<Long, String> svcTypeCacheMap = Maps.newHashMap();
+        Set<Long> svcIds = new HashSet<>();
+
+        Set<HcpApiKeySys> hcpApiKeySysSet = new HashSet<>();
+
+        int updateCnt = 0;
+        for (HcpApiSub it : hcpApiSubList) {
+            it.setEmpNo(empNo);
+            it.setBeforeSubStatCd("NOR");
+
+            Long keyId = it.getKeyId();
+            Long svcId = it.getSvcId();
+            svcIds.add(svcId);
+            String svcType = svcTypeCacheMap.computeIfAbsent(svcId, k -> hcpApiSvcMapper.getHcpSvcType(svcId));
+            if ("CTS".equalsIgnoreCase(svcType)) {
+                CtsSubKeyInfo keyInfo = hcpApiTokenMapper.getCtsSubKeyInfo(keyId);
+
+                if (keyInfo == null) {
+                    log.error("keyInfo is null - keyId : {}", keyId);
+                    throw new RestException(ResponseCode.BAD_REQUEST, "keyInfo is null");
+                }
+
+                // 2. CTS구독 프로세스
+                try {
+                    ctsService.unSubscriptionCts(keyInfo);
+                } catch (Exception e) {
+                    log.error("cts subscription error! - {}", e.getMessage());
+                    throw new RestException(ResponseCode.INTERNAL_SERVER_ERROR, "cts subscription fail");
+                }
+            }
+
+            if("DRM".equalsIgnoreCase(svcType)) {
+                hcpApiKeySysSet.add(buildDrmConfirmTarget(it));
+            }
+
+            int cnt = hcpApiSubMapper.updateApiSub(it);
+            updateCnt += cnt;
+        }
+
+        if( updateCnt == 0){
+            throw new RestException(ResponseCode.BAD_REQUEST, "구독 해제된 API가 없습니다. 잘못된 요청입니다.");
+        }
+
+        for (HcpApiKeySys target : hcpApiKeySysSet) {
+            removeSysEmpNoMapping(target);
+        }
+
+        hcpApiQosService.deleteApiQosByPubIdAndKeyId(hcpApiSubList);
+
+        for (Long svcId : svcIds) {
+            commonService.actionHistory(svcId, "CCL", empNo, "구독 신청이 해제되었습니다");
+        }
+    }
+
+    /**
+     * 구독 승인 반려
+     *
+     * @param hcpApiSubList
+     * @param empNo
+     * @param account
+     * @throws Exception
+     */
+    public void reject(List<HcpApiSub> hcpApiSubList, String empNo, Account account) throws Exception {
+        Map<Long, String> svcTypeCacheMap = Maps.newHashMap();
+        Set<Long> svcIds = new HashSet<>();
+        Set<HcpApiKeySys> hcpApiKeySysSet = new HashSet<>();
+
+        int updateCnt = 0;
+        for (HcpApiSub it : hcpApiSubList) {
+            it.setEmpNo(empNo);
+            it.setBeforeSubStatCd("APR");
+
+            Long svcId = it.getSvcId();
+            String svcType = svcTypeCacheMap.computeIfAbsent(svcId, k -> hcpApiSvcMapper.getHcpSvcType(svcId));
+
+            if ("DRM".equalsIgnoreCase(svcType)) {
+                hcpApiKeySysSet.add(buildDrmConfirmTarget(it));
+            }
+            int cnt = hcpApiSubMapper.updateApiSub(it);
+            updateCnt += cnt;
+
+            svcIds.add(it.getSvcId());
+        }
+
+        if (updateCnt == 0) {
+            throw new RestException(ResponseCode.BAD_REQUEST, "반려된 API가 없습니다. 잘못된 요청입니다.");
+        }
+
+        for (HcpApiKeySys target : hcpApiKeySysSet) {
+            removeSysEmpNoMapping(target);
+        }
+        String actCd = "SEJ";
+        String memo = "구독 신청이 반려되었습니다";
+        String reason = hcpApiSubList.get(0).getAprvReason();
+        for (Long svcId : svcIds) {
+
+            commonService.actionHistory(svcId, actCd, empNo, memo);
+            Map<String, Object> resultMap = commonService.notifyCubeMsg(svcId, hcpApiSubList.get(0).getKeyId(), empNo, "**API Store 구독 신청 결과 알림**",
+                    new String[]{"의 구독 신청이 반려되었습니다.", reason});
+
+//            Map<String, Object> hashMap = Map.of("svcId", svcId, "keyId", hcpApiSubList.get(0).getKeyId(), "empNo", empNo);
+//            List<String> userList = hcpApiMyPageMapper.getMyRegistUserSub(hashMap);
+//            if( CollectionUtils.isEmpty( userList) ){
+//                continue;
+//            }
+//
+//            List<Map<String, Object>> hcpApiSvcDtl = hcpApiSvcMapper.selectSvcInfDtl(svcId);
+//
+//            String serviceName = (String) hcpApiSvcDtl.get(0).get("svcNm");
+//            Map<String, Object> templateHashMap = new HashMap<>();
+//            templateHashMap.put("title", "**API Store 구독 신청 결과 알림**");
+//            templateHashMap.put("message", serviceName + "의 구독 신청이 반려되었습니다.");
+//            templateHashMap.put("message1", "반려메시지 : " + reason);
+//
+//            String url = linkUrl + "apps/hcp-web-api-store/api/detail/" + svcId;
+//            for (int i = 0; i < 2; i++) {
+//                templateHashMap.put("urlLink", url);
+//                if (i == 0) {
+//                    templateHashMap.put("userId", "");
+//                    String channelId = cubeChannelId;
+//                    templateHashMap.put("channelId", channelId);
+//                } else if (i == 1) {
+//                    templateHashMap.put("userId", userList.get(0));
+//                    templateHashMap.put("channelId", "");
+//                }
+//                cubeNotiService.notificate(templateHashMap);
+//            }
+            if(CollectionUtils.isEmpty((Collection<?>) resultMap)){
+                commonService.workplaceNotify(
+                        accountUtil.getSiteIdDefaultIfNull(account),
+                        "[반려]" + resultMap.get("serviceName") + "의 구독 신청이 반려되었습니다.",
+                        "[Reject]" + resultMap.get("serviceName") + " subscription rejected",
+                        "[Reject]" + resultMap.get("serviceName") + " subscription rejected",
+                        NOTI_API_DETAIL_CONTENTS, NOTI_API_DETAIL_CONTENTS, NOTI_API_DETAIL_CONTENTS,
+                        "rejectMessage  : " + reason,
+                        "rejectMessage  : " + reason,
+                        "rejectMessage  : " + reason,
+                        (String) resultMap.get("url"),
+                        (List<String>) resultMap.get("userList")
+                );
+            }
+
+        }
+    }
+
+추춘 메소드
+
+public Map<String, Object> notifyCubeMsg(Long svcId, Long keyId, String empNo, String title, String[] msgArr) throws Exception {
+		Map<String, Object> resultMap = new HashMap<>();
+		Map<String, Object> hashMap = Map.of("svcId", svcId, "keyId", keyId, "empNo", empNo);
+		List<String> userList = hcpApiMyPageMapper.getMyRegistUserSub(hashMap);
+		if (CollectionUtils.isEmpty(userList)) {
+			return null;
+		}
+		resultMap.put("userList", userList);
+
+
+		List<Map<String, Object>> hcpApiSvcDtl = hcpApiSvcMapper.selectSvcInfDtl(svcId);
+
+		String serviceName = (String) hcpApiSvcDtl.get(0).get("svcNm");
+		resultMap.put("serviceName", serviceName);
+		Map<String, Object> templateHashMap = new HashMap<>();
+		templateHashMap.put("title", title);
+		templateHashMap.put("message", serviceName + msgArr[0]);
+		if(msgArr.length > 1){
+			templateHashMap.put("message1", "반려메시지 : " + msgArr[1]);
+		}
+
+		String url = linkUrl + "apps/hcp-web-api-store/api/detail/" + svcId;
+		resultMap.put("url", url);
+		for (int i = 0; i < 2; i++) {
+			templateHashMap.put("urlLink", url);
+			if (i == 0) {
+				templateHashMap.put("userId", "");
+				String channelId = cubeChannelId;
+				templateHashMap.put("channelId", channelId);
+			} else if (i == 1) {
+				templateHashMap.put("userId", userList.get(0));
+				templateHashMap.put("channelId", "");
+			}
+			cubeNotiService.notificate(templateHashMap);
+		}
+		return resultMap;
+	}
+
 
 
