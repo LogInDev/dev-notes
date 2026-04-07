@@ -106,4 +106,34 @@ public class HistoryDetailDTO implements Serializable {
 
 
 }
+    // API STORE 의 이력에 대한 출력
+    public Map<String, Object> getActHist(Long svcId) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("svcId", svcId);
+        int count = histMapper.getActHistCount(params);
+//        List<Map<String, Object>> actHist = histMapper.getActHist(params);
+        List<Map<String, Object>> actHist = histMapper.getActHistDetail(params);
+        actHist.forEach(item -> {
+            try {
+                Object detailObj = item.get("detail");
+                if (detailObj == null) return;
 
+                Map<String, Object> resultDetail = mapper.readValue(detailObj.toString(), Map.class);
+
+                List<Map<String, Object>> keyList = (List<Map<String, Object>>) resultDetail.get("keyList");
+
+                if (keyList != null && !keyList.isEmpty()) {
+                    String keyNames = keyList.stream()
+                            .map(m -> String.valueOf(m.get("keyName")))
+                            .collect(Collectors.joining(" | "));
+
+                    item.put("detail",  keyNames);
+                }
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        params.put("actHist", actHist);
+        params.put("total", count);
+        return params;
+    }
