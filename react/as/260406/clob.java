@@ -13,3 +13,22 @@ detailInfo에
                         .stream()
                         .filter(Objects::nonNull)
                         .collect(Collectors.joining(" \n"));
+
+
+                        public void updateSvcRootKey(HcpApiSvc hcpApiSvcTemp, Account account) throws Exception {
+        String empNo = commonService.getUserId(account);
+        hcpApiSvcTemp.setEmpNo(empNo);
+        Long svcId = hcpApiSvcTemp.getSvcId();
+        String oldRootKey = apiListMapper.getRootKeyBySvcId(svcId);
+        RootKeyDetailDTO rootKeyDetail = RootKeyDetailDTO.builder()
+                .previous(oldRootKey)
+                .current(hcpApiSvcTemp.getRootKey())
+                .build();
+        ApiActionHistoryDetail detailInfo = ApiActionHistoryDetail.builder()
+                .rootKey(rootKeyDetail)
+                .build();
+        if (detailInfo != null) {
+            commonService.actionHistory(svcId, ActHistType.RDM, account.getAccountId(), detailInfo);
+        }
+        apiListMapper.updateSvcRootKey(hcpApiSvcTemp);
+    }
