@@ -1,0 +1,174 @@
+
+1. '구독 중인 API'
+	- /myPage/getMySubApi?search=&keyword=NOR&order=DESC&sortBy=upd_dttm
+
+2. '내가 등록한 API'
+	- /myPage/getMyRegistApi?search=&order=DESC&sortBy=upd_dttm
+
+
+이렇게 api 요청할 때
+내가 등록한 api에도 key id가 필요한데 어떻게 구하지?
+
+     
+            
+-- '구독 중인 API'
+               WITH my_key_ids AS (
+        SELECT hak.key_name, haka.auth_cd, haka.prj_id
+            ,haka.auth_id, hak.key_id
+        FROM hcp_api_key hak
+        JOIN hcp_api_key_auth haka 	ON hak.key_id = haka.key_id
+        <if test="keyId == null or keyId.size() == 0">
+        JOIN table(HCP_GET_AUTH_PRJ(#{empNo})) prj ON haka.prj_id = prj.prj_id
+        </if>
+        WHERE NOT (AUTH_CD = 'PSN' AND OWNER_ID != #{empNo})
+        <if test="keyId != null and keyId.size() > 0">
+            AND HAK.KEY_ID IN
+            <foreach item="item" collection="keyId" open="(" separator="," close=")">
+                #{item}
+            </foreach>
+        </if>
+        ), sub_count AS (
+            SELECT svc_id , count(1) AS sub_count FROM
+            (
+                SELECT s.svc_id, X.key_id FROM (SELECT * FROM HCP_API_SVC WHERE SVC_ENV = '${hcp.application.env}') s
+                JOIN hcp_api_base b ON s.svc_id = b.svc_id
+                JOIN hcp_api_pub p ON p.api_id = b.api_id
+                JOIN (
+                    SELECT key_id, pub_id FROM hcp_api_sub sub
+                    WHERE sub.sub_stat_cd!='CCL'
+                    GROUP BY key_id, pub_id
+                ) X ON p.pub_id = X.pub_id
+                GROUP BY s.svc_id, x.key_id
+                ORDER BY svc_id ASC
+            )z
+            GROUP BY z.svc_id
+        )
+        , reg_user_info AS (
+            SELECT 
+				FU.NAME_KOR, FU.EMP_NO, FD.NAME_KOR AS DEPT_KOR, FP.NAME_KOR AS POS_KOR, FU.EMAIL, FU.STATUS_CD
+			FROM 
+				FR_USER FU
+				JOIN FR_DEPT FD ON FU.DEPT_ID = FD.DEPT_ID
+				JOIN FR_POSITION FP ON FU.PSTN_ID = FP.PSTN_ID
+        )
+        , cat_info AS (
+            <include refid="com.skhynix.hcp.svc.api.store.mapper.CategoryMapper.categoryNames" />
+        )
+        SELECT
+            HAS.SVC_ID, HAS.SVC_NM, HAS.SVC_TYPE, HAS.SVC_MODEL, HAS.SVC_DESC
+            , Z.sub_stat_cd, Z.upd_dttm, z.reg_user_id, z.aprv_reason
+            , NVL(rui.NAME_KOR, '-') NAME_KOR, z.reg_user_id AS EMP_NO, rui.DEPT_KOR, rui.POS_KOR, rui.EMAIL
+            , sc.sub_count
+            , cat_info.*
+            , mki.*
+        FROM
+            (SELECT * FROM HCP_API_SVC WHERE SVC_ENV = '${hcp.application.env}') HAS
+            JOIN
+            (
+                SELECT INS.*
+                , SUB.APRV_REASON
+                , SUB.REG_USER_ID
+                , SUB.UPD_DTTM
+                FROM
+                (
+                    SELECT b.svc_id, SUB.key_id, SUB.sub_stat_cd,
+                    max(sub.sub_id) AS sub_id
+                    FROM hcp_api_base b
+                    JOIN hcp_api_pub p ON b.api_id = p.api_id
+                    JOIN hcp_api_sub SUB ON SUB.pub_id = p.pub_id
+                    WHERE 1=1
+                    <if test='main == "Y"'>
+                        AND SUB.SUB_STAT_CD != 'CCL'
+                    </if>
+                    <if test='keyword != null'>
+                        AND SUB.SUB_STAT_CD = #{keyword}
+                    </if>
+                    GROUP BY b.svc_id, SUB.key_id, SUB.sub_stat_cd
+                ) INS
+                JOIN HCP_API_SUB  SUB ON SUB.SUB_ID = INS.SUB_ID
+            ) z ON HAS.svc_id = z.svc_id
+            JOIN sub_count sc ON HAS.svc_id = sc.svc_id
+            JOIN my_key_ids mki ON mki.key_id = z.key_id
+            JOIN cat_info ON HAS.CAT_ID = cat_info.CAT_ID
+            LEFT JOIN reg_user_info rui ON z.REG_USER_ID = rui.EMP_NO AND rui.STATUS_CD = 'C'
+        WHERE HAS.show_yn = 'Y'
+            AND (HAS.DEL_YN = 'N' OR (HAS.DEL_YN = 'Y' AND (TO_CHAR(HAS.RES_DTTM, 'YYYY-MM-DD HH24:MI:SS') <![CDATA[ >= ]]> TO_CHAR(SYSDATE, 'YYYY-MM-DD HH24:MI:SS'))))
+            <if test='search != null'>
+                AND LOWER(HAS.SVC_NM) LIKE '%' || LOWER(#{search}) || '%'
+            </if>
+        <if test="sortBy != null and order != null">
+            ORDER BY
+            <choose>
+                <when test="sortBy == 'sub_count'">sub_count</when>
+                <when test="sortBy == 'vw_cnt'">vw_cnt</when>
+                <when test="sortBy == 'api_id'">api_id</when>
+                <otherwise>upd_dttm</otherwise>
+            </choose>
+            <choose>
+                <when test="order == 'asc'">ASC</when><otherwise>DESC</otherwise>
+            </choose>
+        </if>
+        
+        
+        
+        
+-- '내가 등록한 API'
+          WITH FR_USER_INFO as (
+            SELECT 
+				FU.NAME_KOR, FU.EMP_NO, FD.NAME_KOR AS DEPT_KOR, FP.NAME_KOR AS POS_KOR, FU.EMAIL, FU.STATUS_CD
+			FROM 
+				FR_USER FU
+				JOIN FR_DEPT FD ON FU.DEPT_ID = FD.DEPT_ID
+				JOIN FR_POSITION FP ON FU.PSTN_ID = FP.PSTN_ID
+        )
+        SELECT RESULT.*, NVL(X.NAME_KOR, '-') NAME_KOR, RESULT.REG_USER_ID AS EMP_NO, X.DEPT_KOR, X.POS_KOR, X.EMAIL
+        FROM (
+		       SELECT SVC.SVC_ID 
+				     , SVC.SVC_NM
+					 , SVC.SVC_TYPE
+                     , SVC.SVC_MODEL
+				     , SVC.SVC_DESC
+				     , CAT.*
+				     ,(SELECT COUNT(API_ID) AS API_COUNT FROM HCP_API_BASE WHERE SVC_ID = SVC.SVC_ID) AS API_COUNT
+                     , NVL(APR.APR_COUNT,0) AS APR_COUNT
+                     , NVL(REQ.RAS_COUNT,0) AS RAS_COUNT
+                     , NVL(NOR.SUB_COUNT,0) AS SUB_COUNT
+                     , SVC.VW_CNT
+                     , SVC.UPD_DTTM
+                     , 'REG' AS KEY_ID
+                     , SVC.REG_USER_ID
+                     , 'REG_NAME' AS KEY_NAME
+				  FROM (SELECT * FROM HCP_API_SVC WHERE SVC_ENV = 'DEV') SVC 
+				     , (
+                        <include refid="com.skhynix.hcp.svc.api.store.mapper.CategoryMapper.categoryNames" />
+                    ) CAT
+                     , <include refid="aprSvc"/>
+                     , <include refid="reqSvc"/>
+                     , <include refid="norSvc"/>
+				     , <include refid="subSvc"/>
+				 WHERE SVC.CAT_ID = CAT.CAT_ID
+				   AND SVC.SVC_ID = SUB.SVC_ID(+)
+				   AND SVC.SVC_ID = APR.SVC_ID(+)
+                   AND SVC.SVC_ID = NOR.SVC_ID(+)
+                   AND SVC.SVC_ID = REQ.SVC_ID(+)
+				   AND SVC.REG_USER_ID = #{empNo}
+				   <if test='search != null'>	  
+						AND LOWER(SVC.SVC_NM) LIKE '%' || LOWER(#{search}) || '%'
+				  </if>
+				   AND (SVC.DEL_YN = 'N' OR (SVC.DEL_YN = 'Y' AND (TO_CHAR(SVC.RES_DTTM, 'YYYY-MM-DD HH24:MI:SS') <![CDATA[ >= ]]> TO_CHAR(SYSDATE, 'YYYY-MM-DD HH24:MI:SS'))))
+				   <if test="svcId != null and svcId != ''">
+				   		AND SVC.SVC_ID = #{svcId}
+				   </if>
+		    ) RESULT
+            LEFT JOIN FR_USER_INFO X ON RESULT.REG_USER_ID = X.EMP_NO AND X.STATUS_CD = 'C'
+        
+            ORDER BY upd_dttm DESC
+        </if>
+            
+            
+            
+            
+            
+            
+            
+
