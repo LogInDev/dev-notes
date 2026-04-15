@@ -1,12 +1,581 @@
+응, 지금 네가 말한 방향이면 충분히 가능하고 실무적으로도 깔끔한 편이야.
+
+즉 구조를 이렇게 가져가는 거지.
+	•	인터페이스 테이블
+	•	현재 상태 관리
+	•	배치 중복 실행 방지
+	•	배치 히스토리 테이블
+	•	단순 이력/감사용
+	•	나중에 “언제 무엇을 몇 건 처리했는지” 확인용
+
+이렇게 역할을 분리하면 돼.
+
+⸻
+
+1. 네 방식, 괜찮냐?
+
+괜찮아. 오히려 지금 구조에서는 더 단순하고 명확해.
+
+네가 말한 로직은 이렇게 정리돼.
+
+인터페이스 테이블 컬럼
+	•	ACCOUNT
+	•	ACCOUNT_STATUS
+	•	BATCH_RUN (Y / N)
+
+의미
+	•	ACCOUNT_STATUS = 3 이고 BATCH_RUN = N
+	•	배치 처리 대상
+	•	배치 처리 완료 후
+	•	BATCH_RUN = Y
+	•	나중에 다시 승인 프로세스를 타면
+	•	ACCOUNT_STATUS 가 승인 상태로 바뀜
+	•	BATCH_RUN = N 으로 초기화
+	•	이후 다시 만료되면
+	•	다시 ACCOUNT_STATUS = 3, BATCH_RUN = N
+	•	배치 대상이 됨
+
+이러면 네가 원하는
+	•	이미 처리한 만료 건 재처리 방지
+	•	재승인 후 재만료 시 재처리 가능
+
+둘 다 충족돼.
+
+⸻
+
+2. 승인할 때도 BATCH_RUN = N 넣어야 하냐?
+
+응, 넣는 게 맞아.
+그리고 개인적으로는 구독 신청 시점보다 승인 완료 시점에도 반드시 넣는 걸 추천해.
+
+왜냐면 기준은 “구독 신청했다”가 아니라 “다시 배치 대상이 될 수 있는 승인 상태로 복귀했느냐” 이기 때문이야.
+
+⸻
+
+왜 승인 시점에도 넣는 게 좋냐
+
+네 말대로 업무상:
+	•	구독 신청
+	•	구독 승인
+
+과정을 거쳐야 다시 유효한 상태가 되잖아.
+
+그런데 BATCH_RUN을 신청 시점에만 N으로 바꾸면 애매한 상황이 생길 수 있어.
+
+예를 들어:
+
+케이스
+	1.	예전에 만료되어 배치 돌았음 → BATCH_RUN = Y
+	2.	사용자가 다시 구독 신청 → BATCH_RUN = N
+	3.	아직 승인 안 됨
+	4.	이 상태에서 뭔가 다른 배치나 로직이 ACCOUNT_STATUS = 3 AND BATCH_RUN = N을 보면 다시 후보로 잡힐 여지가 생김
+
+물론 네 업무 상태 모델에 따라 다르지만,
+일반적으로는 “다시 승인되어 정상 라이프사이클에 들어가는 시점” 을 기준으로 초기화하는 게 더 자연스러워.
+
+⸻
+
+추천 기준
+
+가장 안전한 방법
+	•	구독 신청 시점: BATCH_RUN 변경 안 함
+	•	구독 승인 시점: BATCH_RUN = N
+
+이유:
+	•	배치 재실행 가능 상태는 “신청”이 아니라 “승인 완료”부터라고 보는 게 더 명확함
+
+⸻
+
+그런데 네 업무에서 신청만 들어가도 반드시 다음 승인을 향해 가는 흐름이라면
+
+그때는 신청 시점에 N으로 바꿔도 돼.
+
+다만 이 경우에도 나는 보통 이렇게 권장해.
+
+권장
+	•	신청 시점: BATCH_RUN = N
+	•	승인 시점: 한 번 더 BATCH_RUN = N 보정
+
+즉 승인 시점에도 넣어.
+이유는 간단해.
+	•	신청 단계에서 누락될 수도 있고
+	•	운영자가 수동 수정할 수도 있고
+	•	중간 상태 변경으로 값이 꼬일 수도 있음
+
+N으로 세팅하는 건 idempotent 하니까
+승인 시점에도 한 번 더 넣어도 부작용이 거의 없어.
+
+⸻
+
+3. 결론: 승인 때도 넣을까?
+
+응. 넣는 걸 추천해.
+
+정리하면:
+	•	구독 신청 시: BATCH_RUN = N
+	•	구독 승인 시: BATCH_RUN = N 한 번 더 보정
+
+이렇게 하면 더 안전해.
+
+⸻
+
+4. 그러면 배치 조회 조건은 어떻게 되냐
+
+이제 아주 단순해져.
+
+SELECT ACCOUNT
+FROM system_account_interface
+WHERE ACCOUNT_STATUS = '3'
+  AND BATCH_RUN = 'N'
+
+이 계정들이 배치 처리 대상이야.
+
+그리고 처리 끝나면:
+
+UPDATE system_account_interface
+SET BATCH_RUN = 'Y'
+WHERE ACCOUNT = ?
+  AND ACCOUNT_STATUS = '3'
+  AND BATCH_RUN = 'N'
+
+이렇게 바꾸면 됨.
+
+가능하면 조건절에 ACCOUNT_STATUS = 3 AND BATCH_RUN = N까지 같이 넣는 게 좋아.
+그래야 중간에 상태 바뀐 걸 잘못 덮지 않음.
+
+⸻
+
+5. 이 구조에서 히스토리 테이블 역할
+
+이제 히스토리는 정말 단순 이력이야.
+
+즉 역할은:
+	•	어떤 시스템 계정을 배치가 처리했는지
+	•	언제 처리했는지
+	•	처리 결과가 성공/실패인지
+	•	몇 건 해제/반려했는지
+	•	실패하면 왜 실패했는지
+
+즉 판별용 아님
+오직 로그/감사용
+
+⸻
+
+6. 히스토리 테이블은 무엇을 남기냐
+
+네 배치는 한 시스템 계정당 이런 일이 벌어지잖아.
+	•	만료된 시스템 계정 1건
+	•	그 계정이 연결된 구독중 서비스/키 여러 건
+	•	구독 신청중 서비스/키 여러 건
+	•	각 프로젝트 관리자에게 알림
+
+그러면 히스토리는 보통 2가지 방식이 있어.
+
+⸻
+
+7. 추천: 마스터 1개 + 상세 1개
+
+이게 제일 실무적이야.
+
+A. 마스터 히스토리
+
+시스템 계정 단위로 1건
+
+즉:
+	•	“이 시스템 계정 만료 건에 대해 배치가 한 번 돌았다”
+
+를 기록
+
+B. 상세 히스토리
+
+그 안에서 실제로 처리한 서비스/키/구독 건들을 여러 건 기록
+
+즉:
+	•	어떤 서비스는 구독 해제
+	•	어떤 서비스는 신청 반려
+	•	어떤 키/프로젝트에 대해 처리
+	•	성공/실패 여부
+
+를 기록
+
+⸻
+
+8. 왜 상세가 필요하냐
+
+예를 들어 운영에서 이런 질문이 나와.
+	•	SYS001 만료 배치 처리됐다는데 정확히 뭐가 해제됐냐
+	•	서비스 A는 왜 해제됐고 서비스 B는 왜 안 됐냐
+	•	신청 반려 몇 건이었냐
+	•	어떤 프로젝트 관리자에게 알림 갔냐
+
+마스터만 있으면 이런 걸 답하기 어려워.
+
+그래서 보통:
+	•	마스터: 계정 단위 요약
+	•	상세: 처리 건 단위 로그
+
+이렇게 간다.
+
+⸻
+
+9. 최소 히스토리 테이블 설계
+
+⸻
+
+9-1. 마스터 히스토리
+
+테이블명 예시:
+sys_account_batch_hist
+
+CREATE TABLE sys_account_batch_hist (
+    hist_id                    BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    account                    VARCHAR(100) NOT NULL,
+    account_status             VARCHAR(20) NOT NULL,
+    batch_run_before           CHAR(1) NOT NULL,
+    process_status             VARCHAR(20) NOT NULL,
+    unsubscribe_target_count   INT NOT NULL DEFAULT 0,
+    unsubscribe_success_count  INT NOT NULL DEFAULT 0,
+    reject_target_count        INT NOT NULL DEFAULT 0,
+    reject_success_count       INT NOT NULL DEFAULT 0,
+    notify_target_count        INT NOT NULL DEFAULT 0,
+    notify_success_count       INT NOT NULL DEFAULT 0,
+    error_message              VARCHAR(2000) NULL,
+    processed_at               DATETIME NOT NULL,
+    created_at                 DATETIME NOT NULL,
+    updated_at                 DATETIME NOT NULL
+);
 
 
-아냐 인터페이스 테이블에 배치 실행 유무를 파악하는 컬럼(BATCH_RUN)을 만들어서
-Y/N으로 하는거야 그래서 3상태인 시스템 계정을 배치처리하면 Y로 바꾸고
-그 시스템 계정이 다시 승인을 받아서 1상태로 변하고 구독 신청 을 하면 다시 배치 실행 유무 컬럼의 값을 N으로 바꾸는 거지
-어차피 구독 신청 과정을 거쳐야 구독 승인이 되거든
-그래도 구독 승인할때동 해당 시스템 계정의 배치 시행 유무 컬럼의 값을 N으로 바꾸는 로직 넣을까?
+⸻
 
-그렇게  처리하면 승인 기간 만료된 시스템 사번이 다시 승인 받고 승인 기간 만료되도 배치 처리할 수 있지
-그리고 배치 처리 히스토리 테이블을 남길건데 
-한번 승인 기간 만료된 시스템 계정을 조회하면 여러개가 나오고 그걸 구독 해제 또는 구독 신청 반려 처리를 하는데 그럼 보통 배치 히스토리 테이블에 어떤걸 남기고 어떻게 남겨?
-이제 배치 히스토리 테이블은 단순 이력으로만 사용하는 거야.
+컬럼 설명
+
+account
+	•	어떤 시스템 계정인지
+
+account_status
+	•	처리 당시 상태
+	•	보통 3일 것
+
+batch_run_before
+	•	처리 직전 BATCH_RUN 값
+	•	보통 N
+	•	나중에 로그 볼 때 유용함
+
+process_status
+	•	SUCCESS
+	•	FAIL
+	•	PARTIAL_SUCCESS
+
+unsubscribe_target_count
+	•	구독 해제 대상 건수
+
+unsubscribe_success_count
+	•	실제 구독 해제 성공 건수
+
+reject_target_count
+	•	구독 신청 반려 대상 건수
+
+reject_success_count
+	•	실제 신청 반려 성공 건수
+
+notify_target_count
+	•	알림 대상 사용자 수
+
+notify_success_count
+	•	실제 알림 성공 수
+
+error_message
+	•	실패 시 요약
+
+processed_at
+	•	실제 배치 처리 시각
+
+⸻
+
+9-2. 상세 히스토리
+
+테이블명 예시:
+sys_account_batch_hist_dtl
+
+CREATE TABLE sys_account_batch_hist_dtl (
+    hist_dtl_id         BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    hist_id             BIGINT NOT NULL,
+    account             VARCHAR(100) NOT NULL,
+    svc_id              BIGINT NULL,
+    key_id              BIGINT NULL,
+    project_id          BIGINT NULL,
+    action_type         VARCHAR(30) NOT NULL,
+    target_status       VARCHAR(30) NULL,
+    process_status      VARCHAR(20) NOT NULL,
+    error_message       VARCHAR(2000) NULL,
+    created_at          DATETIME NOT NULL,
+    updated_at          DATETIME NOT NULL
+);
+
+
+⸻
+
+상세에 뭘 남기냐
+
+action_type
+
+예:
+	•	UNSUBSCRIBE
+	•	REJECT_REQUEST
+	•	NOTIFY
+
+svc_id
+	•	어떤 서비스 건인지
+
+key_id
+	•	어떤 키 건인지
+
+project_id
+	•	어떤 프로젝트 기준인지
+
+target_status
+	•	처리 전 상태 정도
+	•	예:
+	•	SUBSCRIBED
+	•	REQUESTED
+
+process_status
+	•	SUCCESS
+	•	FAIL
+
+error_message
+	•	특정 건 실패 이유
+
+⸻
+
+10. 실제로는 어떻게 남기냐
+
+예를 들어 SYS001 이 만료됐다고 해보자.
+
+해당 계정이 가진 대상
+	•	구독중 2건
+	•	svc 10 / key 100
+	•	svc 11 / key 101
+	•	신청중 1건
+	•	svc 12 / key 102
+	•	프로젝트 관리자 3명 알림
+
+그러면
+
+마스터 1건
+
+sys_account_batch_hist
+	•	account = SYS001
+	•	unsubscribe_target_count = 2
+	•	unsubscribe_success_count = 2
+	•	reject_target_count = 1
+	•	reject_success_count = 1
+	•	notify_target_count = 3
+	•	notify_success_count = 3
+	•	process_status = SUCCESS
+
+상세 6건 정도
+
+sys_account_batch_hist_dtl
+	1.	svc10 / key100 / UNSUBSCRIBE / SUCCESS
+	2.	svc11 / key101 / UNSUBSCRIBE / SUCCESS
+	3.	svc12 / key102 / REJECT_REQUEST / SUCCESS
+	4.	projectA admin1 / NOTIFY / SUCCESS
+	5.	projectA admin2 / NOTIFY / SUCCESS
+	6.	projectA admin3 / NOTIFY / SUCCESS
+
+이런 식으로.
+
+⸻
+
+11. 상세 테이블이 너무 부담되면?
+
+그럼 최소 버전으로는 마스터만 둬도 돼.
+
+하지만 그 경우에도 최소한 아래 정도는 남겨.
+	•	어떤 계정 처리했는지
+	•	처리 당시 상태
+	•	구독 해제 대상/성공 건수
+	•	반려 대상/성공 건수
+	•	알림 대상/성공 건수
+	•	성공/실패
+	•	에러 메시지
+	•	처리 시각
+
+즉 최소 마스터만 있어도 운영 확인은 가능해.
+
+⸻
+
+12. 배치 처리 순서 추천
+
+⸻
+
+1단계. 처리 대상 조회
+
+SELECT ACCOUNT
+FROM system_account_interface
+WHERE ACCOUNT_STATUS = '3'
+  AND BATCH_RUN = 'N'
+
+
+⸻
+
+2단계. 계정별 처리 시작
+
+각 계정에 대해:
+	•	구독중 서비스/키 조회
+	•	구독 신청중 서비스/키 조회
+	•	프로젝트/관리자 조회
+
+⸻
+
+3단계. 마스터 히스토리 PROCESSING insert
+
+먼저 남겨
+
+⸻
+
+4단계. 실제 처리
+	•	구독중이면 해제
+	•	신청중이면 반려
+	•	관리자 알림 발송
+
+⸻
+
+5단계. 인터페이스 테이블 BATCH_RUN = Y update
+
+전부 성공하거나, 네 정책상 “처리 완료”로 볼 수 있을 때 갱신
+
+UPDATE system_account_interface
+SET BATCH_RUN = 'Y'
+WHERE ACCOUNT = ?
+  AND ACCOUNT_STATUS = '3'
+  AND BATCH_RUN = 'N'
+
+
+⸻
+
+6단계. 히스토리 최종 update
+	•	성공이면 SUCCESS
+	•	일부 실패면 PARTIAL_SUCCESS
+	•	전부 실패면 FAIL
+
+⸻
+
+13. BATCH_RUN을 언제 Y로 바꿀까
+
+이건 꽤 중요해.
+
+추천
+
+핵심 처리 성공 후에만 Y로 바꿔.
+
+즉 적어도 아래는 끝나야 함:
+	•	구독 해제 / 신청 반려 처리
+
+알림은 부가 기능이라 상황에 따라 달라.
+
+추천 기준
+	•	구독 해제/반려 성공
+	•	BATCH_RUN = Y
+	•	알림 실패
+	•	히스토리는 PARTIAL_SUCCESS
+	•	그래도 중복 처리 막기 위해 BATCH_RUN = Y 가능
+
+왜냐면 본질은 계정에 대한 구독 상태 정리니까.
+알림 때문에 다음날 또 해제/반려 로직 타면 더 위험함.
+
+⸻
+
+14. 내가 추천하는 최종 기준
+
+BATCH_RUN = N으로 바꾸는 시점
+	•	구독 신청 시: 넣어도 됨
+	•	구독 승인 시: 반드시 넣는 걸 추천
+
+즉 승인 시점에는 무조건 초기화
+
+⸻
+
+BATCH_RUN = Y로 바꾸는 시점
+	•	만료 배치에서 구독 해제/반려 핵심 처리 성공 후
+
+⸻
+
+히스토리 테이블 역할
+	•	중복 처리 판단용 아님
+	•	배치 감사/이력 확인용
+
+⸻
+
+히스토리 저장 방식
+
+권장
+	•	마스터 1건 + 상세 N건
+
+최소
+	•	마스터 1건만
+
+⸻
+
+15. 실무적으로 제일 추천하는 형태
+
+인터페이스 테이블
+
+추가 컬럼:
+	•	BATCH_RUN CHAR(1) NOT NULL DEFAULT 'N'
+
+⸻
+
+마스터 히스토리
+	•	계정 단위 1건
+
+필수 컬럼:
+	•	hist_id
+	•	account
+	•	account_status
+	•	batch_run_before
+	•	process_status
+	•	unsubscribe_target_count
+	•	unsubscribe_success_count
+	•	reject_target_count
+	•	reject_success_count
+	•	notify_target_count
+	•	notify_success_count
+	•	error_message
+	•	processed_at
+	•	created_at
+	•	updated_at
+
+⸻
+
+상세 히스토리
+
+있으면 좋음:
+	•	hist_dtl_id
+	•	hist_id
+	•	account
+	•	svc_id
+	•	key_id
+	•	project_id
+	•	action_type
+	•	target_status
+	•	process_status
+	•	error_message
+	•	created_at
+	•	updated_at
+
+⸻
+
+16. 한 줄 결론
+
+네가 제안한 BATCH_RUN 방식 괜찮고,
+현재 구조에서는 오히려 가장 단순하게 운영 가능한 방법이야.
+
+그리고 구독 승인 시에도 BATCH_RUN = N 초기화 로직은 넣는 걸 추천해.
+히스토리 테이블은 배치 판별용이 아니라 단순 이력용으로 두고,
+가능하면 마스터 1건 + 상세 N건 구조로 남기면 운영할 때 제일 편하다.
+
+원하면 다음 답변에서 이걸 바로
+실무용 DDL + MyBatis Mapper SQL + 서비스 처리 순서 코드로 작성해줄게.
