@@ -1,23 +1,453 @@
+이 경우는 “시스템 계정 1건” 기준으로 이력을 쌓으면 안 되고, “승인 사이클 1건” 기준으로 이력을 쌓아야 해.
 
-스프링 데몬에서 일배치로 돌리면서
-db 데이터 조회해서 승인 기간 만료된 시스템 계정 조회하고
-해당 시스템 계정이 구독중이거나 구독 신청 중인 서비스와 키 조회해서
-해당 키의 프로젝트 조회해서 해당 프로젝트의 관리자 권한 있는 모든 사용자 계정을 조회해서
-구독중인건 구독 해제처리하고 구독 신청 중인건 구독 신청 반려 처리해서
-메신저 알림을 보내는 프로세스를 만들거야
+왜냐면 말한 것처럼:
+	•	어떤 시스템 계정 A가 승인 기간 만료됨
+	•	배치가 해제/반려 처리함
+	•	나중에 같은 시스템 계정 A가 다시 승인받음
+	•	그 승인도 나중에 다시 만료될 수 있음
 
-근데 매일 동일한 시간에 배치를 돌릴 건데
-승인 기간 만료된 시스템 계정 조회하는 과정에서
-일전 배치에서 구독 상태들이 처리된 시스템 계정이 같이 조회돼서
-또 처리 로직을 탈 수도 있잖아
-물론 구독 해제 및 반려 처리가 되어서 모든 프로세스 로직은 안타지만
-그전에 불필요하게 서비스와 키조회 쿼리를 진행 할 수도 있으니
-처리된거는 히스토리 테이블을 따로 만들어서 이력을 남기고
-승인가간 만료됐는지 확인은 시스템 계정 인터페이스 테이블이 있는데 거기에 STATUS 값이 3으로 변하면
-승인기간 만료된거야
-근데 히스토리에서 처리된 얘들은 따로 조회할 필요가 없으니까
-그리고 승인 기간이 만료된 시스템 계정도 추후에 다시 승인을 받을 수 있고 또 그 승인 기간이 만료됐을 경우
-배치의 처리 프로세스를 적용해야하는데
+이 흐름이 있으니까,
+system_account_id만으로 “이미 처리한 계정”이라고 막아버리면 재승인 이후 재만료 케이스를 못 잡게 됨.
 
-이런경우 히스토리 테이블을 컬럼을 어떻게 구성하고
-배치 프로세스 를 어떻게 만드는게 좋아?
+그래서 실무적으로는 보통 아래처럼 가는 게 제일 깔끔해.
+
+⸻
+
+1. 핵심 설계 방향
+
+기준은 “계정”이 아니라 “만료 이벤트” 또는 “승인 사이클”
+
+즉 히스토리 테이블은 이런 의미를 가져야 해.
+	•	어떤 시스템 계정이
+	•	어떤 승인 유효기간 기준으로
+	•	언제 만료 대상으로 판단되었고
+	•	배치가 처리했는지
+	•	처리 결과가 성공/실패/부분성공인지
+
+이렇게 남겨야 해.
+
+⸻
+
+2. 제일 중요한 판단 기준
+
+배치에서 중복 처리 방지를 하려면
+“이미 처리한 만료 건인지”를 판별할 수 있는 유니크한 기준값이 필요해.
+
+가장 좋은 후보는 보통 이런 것들이야.
+
+추천 1순위
+
+system_account_id + approval_expired_at
+
+즉:
+	•	시스템 계정 ID
+	•	이번 승인 사이클의 만료 시각
+
+이 조합이 같으면 같은 만료 건으로 보는 거야.
+
+이 방식이 좋은 이유는:
+	•	같은 계정이 다시 승인받으면 보통 새 승인 기간 / 새 만료일이 생김
+	•	그러면 다음 만료는 approval_expired_at 값이 달라짐
+	•	따라서 새로운 처리 대상으로 자연스럽게 구분 가능
+
+⸻
+
+3. 히스토리 테이블 권장 구조
+
+테이블명 예시:
+	•	sys_account_expire_batch_hist
+	•	hcp_api_sys_account_expire_hist
+
+이런 식으로.
+
+권장 컬럼
+
+식별 / 대상 정보
+	•	hist_id PK
+	•	sys_account_id : 시스템 계정 ID
+	•	interface_id 또는 원본 인터페이스 PK : 시스템 계정 인터페이스 테이블 PK
+	•	approval_start_at : 승인 시작 시각
+	•	approval_end_at : 승인 종료 시각
+	•	approval_version 또는 approval_seq : 가능하면 있으면 매우 좋음
+	•	expire_status_snapshot : 처리 당시 인터페이스 STATUS 값(예: 3)
+
+배치 처리 식별용
+	•	expire_event_key : 중복 방지용 유니크 키
+	•	예: sys_account_id + approval_end_at
+	•	문자열로 저장하거나 유니크 인덱스 직접 걸어도 됨
+	•	batch_target_date : 이 만료 건을 배치가 타겟으로 잡은 날짜
+	•	processed_yn : 처리 완료 여부
+	•	process_status : READY / PROCESSING / SUCCESS / FAIL / PARTIAL_SUCCESS
+
+처리 결과 요약
+	•	unsubscribe_target_count : 해제 대상 수
+	•	unsubscribe_success_count
+	•	reject_target_count : 신청 반려 대상 수
+	•	reject_success_count
+	•	notify_target_user_count
+	•	notify_success_count
+
+에러 / 추적
+	•	error_message : 실패 요약
+	•	retry_count
+	•	last_retry_at
+
+공통 감사 컬럼
+	•	created_at
+	•	created_by (BATCH)
+	•	updated_at
+	•	updated_by (BATCH)
+
+⸻
+
+4. 유니크 키는 꼭 걸어두는 게 좋다
+
+예를 들어:
+
+unique(sys_account_id, approval_end_at)
+
+또는
+
+unique(expire_event_key)
+
+이걸 걸어두면 같은 만료 이벤트를 배치가 두 번 잡더라도
+DB 레벨에서 중복 이력 생성을 막을 수 있어.
+
+이게 중요한 이유는:
+	•	스케줄 중복 실행
+	•	배치 재기동
+	•	장애 후 재처리
+	•	운영자가 수동 재실행
+
+같은 상황에서 코드만 믿으면 중복이 생길 수 있음.
+
+⸻
+
+5. 배치 프로세스는 이렇게 짜는 게 좋아
+
+전체 흐름
+
+1단계. 만료 대상 시스템 계정 조회
+
+시스템 계정 인터페이스 테이블에서:
+	•	STATUS = 3 (승인 기간 만료)
+	•	그리고 히스토리에 동일 승인 사이클 처리 성공 이력이 없는 것만 조회
+
+즉 조회 쿼리에서 처음부터 제외해버리는 거야.
+
+예시 개념:
+
+SELECT i.*
+FROM system_account_interface i
+WHERE i.status = 3
+  AND NOT EXISTS (
+      SELECT 1
+      FROM sys_account_expire_batch_hist h
+      WHERE h.sys_account_id = i.sys_account_id
+        AND h.approval_end_at = i.approval_end_at
+        AND h.process_status = 'SUCCESS'
+  )
+
+이렇게 하면
+이미 지난 배치에서 성공 처리한 동일 만료 건은 아예 후보에서 빠짐.
+
+⸻
+
+2단계. 히스토리 선등록
+
+조회한 만료 대상에 대해 먼저 히스토리 row를 PROCESSING 상태로 insert.
+
+이걸 먼저 하는 이유:
+	•	처리 중 장애 나도 흔적이 남음
+	•	중복 실행 방지에 유리
+	•	운영자가 어디까지 처리됐는지 보기가 쉬움
+
+예:
+	•	process_status = PROCESSING
+	•	processed_yn = N
+
+단, 이때 유니크 키 충돌 나면
+이미 다른 실행에서 잡은 거니까 skip.
+
+⸻
+
+3단계. 시스템 계정별 관련 서비스/키/프로젝트/관리자 조회
+
+그다음에만 아래 진행:
+	•	해당 시스템 계정이 구독중인 서비스/키 조회
+	•	구독 신청중인 서비스/키 조회
+	•	각 키의 프로젝트 조회
+	•	각 프로젝트 관리자 권한 사용자 조회
+
+중요한 건
+이 조회는 1단계에서 미처리 만료 건으로 판정된 대상에 대해서만 한다는 거야.
+그래야 네가 걱정한 불필요 쿼리를 줄일 수 있음.
+
+⸻
+
+4단계. 상태 변경 처리
+
+구분해서 처리:
+	•	구독중: 구독 해제
+	•	구독 신청중: 구독 신청 반려
+
+이때 추천하는 방식은:
+
+가능한 한 idempotent 하게
+예를 들어 update 조건을 명확히 걸어.
+
+UPDATE subscription
+SET status = 'UNSUBSCRIBED'
+WHERE sub_id = ?
+  AND status = 'SUBSCRIBED'
+
+UPDATE subscription_request
+SET status = 'REJECTED'
+WHERE req_id = ?
+  AND status = 'REQUESTED'
+
+이렇게 하면 혹시 중복 실행돼도 안전해짐.
+
+⸻
+
+5단계. 관리자 알림 발송
+
+해당 프로젝트 관리자들에게:
+	•	어떤 시스템 계정이 승인 기간 만료되었는지
+	•	어떤 서비스/키가 해제/반려되었는지
+
+알림 보냄.
+
+알림도 가능하면 중복 방지 키를 두는 게 좋음.
+
+예:
+	•	notification_key = expire_event_key + project_id + admin_user_id
+
+그래야 메신저 알림도 중복 발송을 줄일 수 있어.
+
+⸻
+
+6단계. 히스토리 완료 처리
+
+전부 끝나면 히스토리 update:
+	•	process_status = SUCCESS
+	•	processed_yn = Y
+	•	처리 건수들 update
+
+부분 실패면:
+	•	PARTIAL_SUCCESS
+
+완전 실패면:
+	•	FAIL
+	•	error_message 저장
+
+⸻
+
+6. 왜 “처리 결과 요약 컬럼”이 필요하냐
+
+나중에 운영할 때 이런 질문이 꼭 나와:
+	•	오늘 만료 처리 몇 건 했냐
+	•	왜 어떤 건은 알림만 갔고 실제 해제가 안 됐냐
+	•	반려 대상이 몇 건이었냐
+	•	특정 계정은 왜 계속 실패하냐
+
+그래서 단순히 “처리 여부”만 있으면 운영이 너무 힘들어.
+
+⸻
+
+7. 더 좋은 구조: 승인 사이클 식별값이 있으면 최고
+
+만약 시스템 계정 인터페이스 테이블에 아래 같은 값이 있으면 더 좋다:
+	•	approval_seq
+	•	approval_version
+	•	renewal_no
+	•	last_approved_at
+
+이런 승인 사이클 식별값.
+
+그럼 히스토리 유니크 기준을 이렇게 두면 됨:
+
+unique(sys_account_id, approval_seq)
+
+이게 approval_end_at보다 더 안정적이야.
+왜냐면 만료일이 수동 수정될 수도 있기 때문이야.
+
+우선순위
+	1.	approval_seq 같은 승인 사이클 번호
+	2.	없으면 sys_account_id + approval_end_at
+	3.	그것도 불안하면 sys_account_id + approval_start_at + approval_end_at
+
+⸻
+
+8. 개인적으로 추천하는 히스토리 테이블 예시
+
+CREATE TABLE sys_account_expire_batch_hist (
+    hist_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    sys_account_id BIGINT NOT NULL,
+    interface_id BIGINT NOT NULL,
+    approval_start_at DATETIME NULL,
+    approval_end_at DATETIME NOT NULL,
+    expire_status_snapshot VARCHAR(20) NOT NULL,
+    process_status VARCHAR(20) NOT NULL, -- PROCESSING, SUCCESS, FAIL, PARTIAL_SUCCESS
+    processed_yn CHAR(1) NOT NULL DEFAULT 'N',
+    unsubscribe_target_count INT NOT NULL DEFAULT 0,
+    unsubscribe_success_count INT NOT NULL DEFAULT 0,
+    reject_target_count INT NOT NULL DEFAULT 0,
+    reject_success_count INT NOT NULL DEFAULT 0,
+    notify_target_user_count INT NOT NULL DEFAULT 0,
+    notify_success_count INT NOT NULL DEFAULT 0,
+    retry_count INT NOT NULL DEFAULT 0,
+    error_message VARCHAR(2000) NULL,
+    batch_target_date DATE NOT NULL,
+    created_at DATETIME NOT NULL,
+    created_by VARCHAR(50) NOT NULL,
+    updated_at DATETIME NOT NULL,
+    updated_by VARCHAR(50) NOT NULL,
+    UNIQUE KEY uk_sys_account_expire_event (sys_account_id, approval_end_at)
+);
+
+
+⸻
+
+9. 조회를 더 효율적으로 하려면
+
+네가 제일 걱정하는 게
+“이미 처리된 애들도 매일 조회돼서 뒤에 서비스/키 조회까지 갈 수 있다”는 거잖아.
+
+그럼 반드시 조회 단계에서 걸러야 해.
+
+추천 조회 방식
+
+인터페이스 테이블에서 만료 상태인 것 중에서
+히스토리 success 이력이 없는 건만 가져온다.
+
+즉 배치 시작 쿼리에서 끝내야 해.
+
+이게 핵심이야.
+
+⸻
+
+10. 실패 건은 어떻게 할까
+
+이것도 중요해.
+
+성공 건
+
+다음 배치에서 제외
+
+실패 건
+
+다음 배치에서 다시 시도 가능하게 둘지 결정 필요
+
+실무적으로는 보통:
+	•	SUCCESS : 제외
+	•	FAIL, PARTIAL_SUCCESS : 재시도 대상
+
+이렇게 많이 감.
+
+다만 무한 재시도 방지를 위해:
+	•	retry_count < 5
+	•	최근 1시간 이내 실패건은 제외
+
+이런 제한을 둘 수 있어.
+
+⸻
+
+11. 서비스별 상세 이력도 필요할 수 있다
+
+만약 운영 추적을 더 세밀하게 하려면
+마스터 히스토리 + 상세 히스토리로 나눌 수 있어.
+
+마스터
+
+sys_account_expire_batch_hist
+	•	시스템 계정 단위 1건
+
+상세
+
+sys_account_expire_batch_hist_dtl
+	•	서비스/키/구독 건별 처리 결과
+
+예시 컬럼:
+	•	hist_dtl_id
+	•	hist_id
+	•	svc_id
+	•	key_id
+	•	subscription_id
+	•	before_status
+	•	after_status
+	•	action_type (UNSUBSCRIBE, REJECT)
+	•	process_status
+	•	error_message
+
+이렇게 하면 나중에
+“어떤 서비스는 왜 반려 안 됐냐”
+같은 것도 바로 파악 가능해.
+
+실무적으로는 개인적으로 상세 테이블까지 두는 걸 추천해.
+
+⸻
+
+12. 최종 추천 구조
+
+나는 이렇게 추천해.
+
+A. 인터페이스 원본 테이블
+	•	시스템 계정 상태 원본
+	•	STATUS = 3 이 승인 기간 만료
+
+B. 만료 배치 마스터 히스토리
+	•	시스템 계정 + 승인 사이클 단위
+	•	중복 처리 방지용 유니크 키 보유
+
+C. 만료 배치 상세 히스토리
+	•	서비스/키/구독 건별 결과 저장
+
+⸻
+
+13. 배치 의사코드 예시
+
+for (ExpiredSystemAccount target : findUnprocessedExpiredAccounts()) {
+
+    try {
+        createProcessingHistory(target); // unique key 기반 선등록
+
+        List<SubscriptionTarget> subscribed = findSubscribedServicesAndKeys(target);
+        List<SubscriptionTarget> requested = findRequestedServicesAndKeys(target);
+
+        unsubscribeAll(subscribed);
+        rejectAll(requested);
+
+        List<ProjectAdmin> admins = findProjectAdmins(target);
+        sendNotifications(admins, target, subscribed, requested);
+
+        markHistorySuccess(target, counts...);
+
+    } catch (Exception e) {
+        markHistoryFail(target, e);
+    }
+}
+
+
+⸻
+
+14. 결론
+
+이 케이스는 **“시스템 계정 기준 중복 방지”가 아니라 “승인 만료 이벤트 기준 중복 방지”**로 설계해야 해.
+
+제일 좋은 방식은:
+	•	히스토리 테이블을 둔다
+	•	유니크 기준은 sys_account_id + approval_end_at 또는 approval_seq
+	•	배치 시작 조회에서 NOT EXISTS hist SUCCESS 조건으로 미처리 건만 가져온다
+	•	처리 전 히스토리 PROCESSING 선등록
+	•	처리 후 SUCCESS / FAIL / PARTIAL_SUCCESS 갱신
+	•	가능하면 마스터/상세 히스토리 분리
+
+이렇게 하면:
+	•	이미 처리한 만료 건 재처리 방지 가능
+	•	재승인 후 재만료는 새 건으로 처리 가능
+	•	불필요한 서비스/키 조회 줄일 수 있음
+	•	장애/운영 추적도 쉬워짐
+
+원하면 다음 답변에서 내가 이걸 기준으로
+실무용 테이블 DDL, 배치 처리 순서도, 그리고 Spring Batch/일반 스케줄러 서비스 구조까지 코드 레벨로 설계해서 정리해줄게.
