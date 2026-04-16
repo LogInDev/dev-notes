@@ -184,6 +184,7 @@ const Total = ({
     defaultSubscribeConfirm,
   );
 
+  const [expandSvcId, setExpandSvcId] = useState(null);
   const [drmVerifiedEmpNo, setDrmVerifiedEmpNo] = useState(null);
   const [pendingDrmSubscribeVerify, setPendingDrmSubscribeVerify] =
     useState(false);
@@ -303,6 +304,13 @@ const Total = ({
       setDrmVerifiedEmpNo(loginSysEmpNo);
       setPendingDrmSubscribeVerify(false);
       dispatch(resetDrmEmpNoResult());
+      const apiListOfServie = apiListByService?.[expandSvcId] || [];
+      const checkedApiList = apiListOfServie.filter(
+        (api) => api.isChecked === true && api.subStat !== 'NOR',
+      );
+      const autoAppr = serviceList.find(
+        (s) => s.svcId === expandSvcId,
+      )?.autoAppr;
 
       setSubscribeConfirm(
         produce(subscribeConfirm, (draft) => {
@@ -318,7 +326,7 @@ const Total = ({
           );
           draft.onConfirm = () => {
             requestSubscribe(
-              svcId,
+              expandSvcId,
               selectedKey?.keyId,
               checkedApiList,
               autoAppr,
@@ -409,7 +417,8 @@ const Total = ({
 
   // CollapseTable expand 시 핸들링
   const handleExpandCollapseTable = async (expand, svcId) => {
-    const svcType = serviceList.find((s) => s.svcId === svcId)?.svcType;
+    setExpandSvcId(svcId);
+    // const svcType = serviceList.find((s) => s.svcId === svcId)?.svcType;
 
     // DRM 서비스의 경우 시스템 사번 등록을 위해 Detail 화면에서 '구독 신청' 가능
     // if (svcType === 'DRM') {
@@ -457,7 +466,7 @@ const Total = ({
     async (svcId, keyId, apiList, autoAppr) => {
       try {
         const svcType = serviceList.find((s) => s.svcId === svcId)?.svcType;
-        const isDrm = !!svcType === 'DRM';
+        const isDrm = svcType === 'DRM';
         const body = [];
 
         for (const api of apiList) {
