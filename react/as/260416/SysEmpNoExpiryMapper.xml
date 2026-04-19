@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.skhynix.hcp.arch.gateway.cronjob.mapper.SysEmpNoExpiryMapper">
+
+    <select id="getExpiredSysEmpNoByAccountStatus" resultType="String">
+        SELECT IFT.ACCOUNT
+        FROM ${hcp.apistore.ifTable} IFT
+        WHERE IFT.ACCOUNT_STATUS = 3
+    </select>
+
+    <select id="getUpdatedExpirySysEmpNos"
+            resultType="com.skhynix.hcp.arch.gateway.cronjob.dto.HcpApiExpiredSysEmpNo">
+        SELECT HASB.*
+        FROM HCP_API_EXPIRED_SYSEMPNO HASB
+        WHERE HASB.BATCH_STAT_CD = 'W'
+    </select>
+
+    <select id="getPermissionReqBySysEmpNo"
+            parameterType="String"
+            resultType="com.skhynix.hcp.arch.gateway.cronjob.dto.HcpApiInfo">
+        SELECT REQ_ID,
+               SVC_ID,
+               REG_USER_ID AS SYS_EMP_NO,
+               'PAPR' AS BEFORE_SUB_STAT_CD
+        FROM HCP_API_SVC_REQ
+        WHERE REG_USER_ID = #{sysEmpNo}
+          AND REQ_STAT_CD = 'APR'
+    </select>
+
+    <update id="updateReqToRejBySysEmpNo">
+        UPDATE HCP_API_SVC_REQ
+        SET REQ_STAT_CD = #{reqList[0].subStatCd},
+            APRV_USER_ID = NULL,
+            APRV_DTTM    = SYSDATE,
+            APRV_REASON  = #{reqList[0].aprvReason},
+            UPD_USER_ID  = NULL,
+            UPD_DTTM     = SYSDATE
+        WHERE REQ_ID IN
+        <foreach item="reqItem" collection="reqList" open="(" separator=", " close=")">
+            #{reqItem.reqId}
+        </foreach>
+    </update>
+
+    <select id="getSubscribeIdBySysEmpNo"
+            resultType="com.skhynix.hcp.arch.gateway.cronjob.dto.HcpApiInfo">
+        WITH MY_KEY_IDS AS (
+            SELECT HAK.KEY_NAME,
+                   HAKA.AUTH_CD,
+                   HAKA.PRJ_ID,
+                   HAKA.AUTH_ID,
+                   HAK.KEY_ID,
+                   HAKA.REG_USER_ID
+            FROM HCP_API_KEY HAK
+            JOIN HCP_API_KEY_AUTH HAKA ON HAK.KEY_ID = HAKA.KEY_ID
+            JOIN TABLE(HCP_GET_AUTH_PRJ(#{sysEmpNo})) PRJ ON HAKA.PRJ_ID = PRJ.PRJ_ID
+            WHERE HAKA.AUTH_CD = 'PSN'
+              AND HAKA.REG_USER_ID = #{sysEmpNo}
+        )
+        SELECT HAS.SVC_ID,
+               MKI.KEY_ID,
+               MKI.KEY_NAME,
+               MKI.PRJ_ID,
+               MKI.REG_USER_ID AS SYS_EMP_NO
+        FROM (
+            SELECT *
+            FROM HCP_API_SVC
+            WHERE SVC_ENV = UPPER('${hcp.application.env}')
+        ) HAS
+        JOIN (
+            SELECT INS.*, SUB.APRV_REASON, SUB.REG_USER_ID, SUB.UPD_DTTM
+            FROM (
+                SELECT B.SVC_ID,
+                       SUB.KEY_ID,
+                       SUB.SUB_STAT_CD,
+                       MAX(SUB.SUB_ID) AS SUB_ID
+                FROM HCP_API_BASE B
+                JOIN HCP_API_PUB P ON B.API_ID = P.API_ID
+                JOIN HCP_API_SUB SUB ON SUB.PUB_ID = P.PUB_ID
+                WHERE SUB.SUB_STAT_CD IN ('NOR', 'APR')
+                GROUP BY B.SVC_ID, SUB.KEY_ID, SUB.SUB_STAT_CD
+            ) INS
+            JOIN HCP_API_SUB SUB ON SUB.SUB_ID = INS.SUB_ID
+        ) Z ON HAS.SVC_ID = Z.SVC_ID
+        JOIN MY_KEY_IDS MKI ON MKI.KEY_ID = Z.KEY_ID
+        WHERE HAS.SHOW_YN = 'Y'
+          AND (HAS.DEL_YN = 'N' OR (HAS.DEL_YN = 'Y' AND HAS.RES_DTTM >= SYSDATE))
+    </select>
+
+    <select id="getApiInfoByIdList"
+            resultType="com.skhynix.hcp.arch.gateway.cronjob.dto.HcpApiInfo">
+        WITH MY_KEY_IDS AS (
+            SELECT HAK.KEY_NAME,
+                   HAKA.PRJ_ID,
+                   HAK.KEY_ID,
+                   HAKA.REG_USER_ID
+            FROM HCP_API_KEY HAK
+            JOIN HCP_API_KEY_AUTH HAKA ON HAK.KEY_ID = HAKA.KEY_ID
+        )
+        SELECT API.API_ID,
+               API.SVC_ID,
+               PUB.PUB_ID,
+               SUB.SUB_STAT_CD AS BEFORE_SUB_STAT_CD,
+               MKI.KEY_ID,
+               MKI.KEY_NAME,
+               MKI.PRJ_ID,
+               MKI.REG_USER_ID AS SYS_EMP_NO
+        FROM HCP_API_BASE API
+        JOIN HCP_API_PUB PUB ON API.API_ID = PUB.API_ID
+        JOIN HCP_API_SUB SUB ON PUB.PUB_ID = SUB.PUB_ID
+        JOIN MY_KEY_IDS MKI ON SUB.KEY_ID = MKI.KEY_ID
+        WHERE PUB.PUB_STAT_CD = 'NOR'
+          AND
+        <foreach item="id" collection="ids" open="(" separator=" OR " close=")">
+            (SUB.KEY_ID = #{id.keyId} AND API.SVC_ID = #{id.svcId})
+        </foreach>
+    </select>
+
+    <update id="updateApiSub"
+            parameterType="com.skhynix.hcp.arch.gateway.cronjob.dto.HcpApiInfo">
+        UPDATE HCP_API_SUB
+        SET SUB_STAT_CD = #{subStatCd},
+            APRV_DTTM   = SYSDATE,
+            APRV_REASON = #{aprvReason},
+            UPD_DTTM    = SYSDATE
+        WHERE PUB_ID = #{pubId}
+          AND KEY_ID = #{keyId}
+          AND SUB_STAT_CD = #{beforeSubStatCd}
+    </update>
+
+    <delete id="deleteUnexpired">
+        DELETE
+        FROM HCP_API_EXPIRED_SYSEMPNO
+        WHERE SYS_EMP_NO IN (
+            SELECT ACCOUNT
+            FROM IDM_USR_TBL
+            WHERE ACCOUNT_STATUS = 1
+        )
+    </delete>
+
+    <insert id="insertBatchHistIfNotExists">
+        INSERT ALL
+        <foreach collection="sysEmpNos" item="sysEmpNo">
+            WHEN NOT EXISTS (
+                SELECT 1
+                FROM HCP_API_EXPIRED_SYSEMPNO
+                WHERE SYS_EMP_NO = #{sysEmpNo}
+            ) THEN
+            INTO HCP_API_EXPIRED_SYSEMPNO
+                (SYS_EMP_NO, CREATED_AT, UPDATED_AT, BATCH_STAT_CD)
+            VALUES
+                (#{sysEmpNo}, SYSDATE, NULL, 'W')
+        </foreach>
+        SELECT * FROM DUAL
+    </insert>
+
+    <update id="updateBatchStatusBySysEmpNo"
+            parameterType="com.skhynix.hcp.arch.gateway.cronjob.dto.HcpApiExpiredSysEmpNo">
+        UPDATE HCP_API_EXPIRED_SYSEMPNO
+        SET UPDATED_AT    = SYSDATE,
+            BATCH_STAT_CD = #{batchStatCd}
+        WHERE SYS_EMP_NO = #{sysEmpNo}
+    </update>
+
+</mapper>
