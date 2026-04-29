@@ -1,119 +1,35 @@
-const gwHeaderCode = Number(baseState?.gwHeaderCode ?? 0);
-const selectedGwHeaderCode = Number(
-  baseState?.selectedGwHeaderCode ?? gwHeaderCode
-);
+if (!text || (Array.isArray(text) && text.length === 0)) {
+  return <DetailDiv>-</DetailDiv>;
+}
 
-value={selectedGwHeaderCode}
+if (Array.isArray(text)) {
+  const tooltipContent = (
+    <>
+      {text.map((item, index) => (
+        <span key={`tooltip-${index}`}>
+          {item}
+          <br />
+        </span>
+      ))}
+    </>
+  );
 
-onChange={(value) => {
-  handleUpdateBaseState('isUpdated', true);
-  handleUpdateBaseState('selectedGwHeaderCode', Number(value));
-}}
+  const visibleItems = text.slice(0, 2);
+  const hasMore = text.length > 2;
 
-selectedGwHeaderCod
-gwHeaderCode: Number(baseState.selectedGwHeaderCode)
+  return (
+    <Tooltip title={tooltipContent} placement="bottom">
+      <>
+        {visibleItems.map((item, index) => (
+          <DetailDiv key={`detail-content-${index}`}>
+            {item || '-'}
+          </DetailDiv>
+        ))}
 
-<Col span={6}>
-  <Form.Label label={intlObj.get(message['store.gwHeader'])} />
-  <Select
-    width={'100%'}
-    maxWidth={200}
-    options={gwHeaderOptions}
-    value={selectedGwHeaderCode}
-    onChange={(value) => {
-      handleUpdateBaseState('isUpdated', true);
-      handleUpdateBaseState('selectedGwHeaderCode', Number(value));
-    }}
-  />
-</Col>
+        {hasMore && <DetailDiv>...</DetailDiv>}
+      </>
+    </Tooltip>
+  );
+}
 
-
-import { intlObj } from '@/utils/commonUtils';
-import message from '@/language/message';
-
-export const getDocumentTypes = () => [
-  {
-    label: intlObj.get(message['store.select']),
-    value: '',
-    placeholder: intlObj.get(
-      message['store.placeholder.select.apiServiceDocumentUrl'],
-    ),
-  },
-  {
-    label: 'FAQ',
-    value: 'FAQ',
-    placeholder: intlObj.get(
-      message['store.placeholder.input.apiServiceDocumentUrl.faq'],
-    ),
-  },
-  {
-    label: intlObj.get(message['store.iflow']),
-    value: 'IFW',
-    placeholder: intlObj.get(
-      message['store.placeholder.input.apiServiceDocumentUrl.iflow'],
-    ),
-  },
-  {
-    label: intlObj.get(message['store.directInput']),
-    value: 'ETC',
-    placeholder: [
-      intlObj.get(
-        message['store.placeholder.input.apiServiceDocumentUrl.etcName'],
-      ),
-      intlObj.get(
-        message['store.placeholder.input.apiServiceDocumentUrl.etc'],
-      ),
-    ],
-  },
-];
-
-export const getAutoApprOptions = () => [
-  {
-    label: intlObj.get(message['store.autoApprN']),
-    value: 'N',
-  },
-  {
-    label: intlObj.get(message['store.autoApprY']),
-    value: 'Y',
-  },
-];
-
-export const getGwHeaderOptions = () => [
-  {
-    label: intlObj.get(message['store.gwHeader.code0']),
-    value: 0,
-  },
-  {
-    label: intlObj.get(message['store.gwHeader.code1']),
-    value: 1,
-  },
-];
-
-import {
-  getDocumentTypes,
-  getAutoApprOptions,
-  getGwHeaderOptions,
-} from '@/utils/selectOptions';
-
-const documentTypes = useMemo(() => getDocumentTypes(), []);
-const autoApprOptions = useMemo(() => getAutoApprOptions(), []);
-const gwHeaderOptions = useMemo(() => getGwHeaderOptions(), []);
-
-
-const gwHeaderCode = Number(baseState?.gwHeaderCode ?? 0);
-
-const selectedGwHeaderCode = Number(
-  baseState?.selectedGwHeaderCode ?? gwHeaderCode,
-);
-<Select
-  width={'100%'}
-  maxWidth={200}
-  options={gwHeaderOptions}
-  value={selectedGwHeaderCode}
-  onChange={(value) => {
-    handleUpdateBaseState('isUpdated', true);
-    handleUpdateBaseState('selectedGwHeaderCode', Number(value));
-  }}
-/>
-
-
+return <DetailDiv>{text}</DetailDiv>;
