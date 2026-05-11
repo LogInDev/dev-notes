@@ -69,4 +69,10 @@ public class ApprovalExpiryBatchService {
         int insertCnt = sysEmpNoExpiryMapper.insertIfSnapshot();
         log.info("HCP_IDM_USR_TBL 스냅샷 갱신 완료. insertCount={}", insertCnt);
     }
+
+//     @Transactional(propagation = Propagation.NOT_SUPPORTED)
+// public void refreshIfSnapshotWithTruncate() {
+//     sysEmpNoExpiryMapper.truncateIfSnapshot();
+//     sysEmpNoExpiryMapper.insertIfSnapshot();
+// }
 }
