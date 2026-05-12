@@ -1,75 +1,16 @@
-<delete id="deleteUnexpired">
-    DELETE
-    FROM HCP_API_EXPIRED_SYSEMPNO
-    WHERE DAEMON_ENV = UPPER('${hcp.application.env}')
-      AND SYS_EMP_NO IN (
-          SELECT IFT.ACCOUNT
-          FROM ${hcp.apistore.ifTable} IFT
-      )
-</delete>
-
 <select id="getExpiredSysEmpNo" resultType="String">
     SELECT HIUT.ACCOUNT
-    FROM HCP_${hcp.apistore.ifTable} HIUT
-    LEFT JOIN ${hcp.apistore.ifTable} IUT
-      ON HIUT.ACCOUNT = IUT.ACCOUNT
-    WHERE IUT.ACCOUNT IS NULL
+FROM HCP_IDM_USR_TBL HIUT
+WHERE HIUT.ACCOUNT_STATUS = '1'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM IDM_USR_TBL IUT
+      WHERE IUT.ACCOUNT = HIUT.ACCOUNT
+  )
+
+UNION ALL
+
+SELECT IUT.ACCOUNT
+FROM IDM_USR_TBL IUT
+WHERE IUT.ACCOUNT_STATUS = '3'
 </select>
-
-<insert id="insertExpirySysEmpNosIfNotExists">
-    INSERT ALL
-    <foreach collection="sysEmpNos" item="sysEmpNo">
-        WHEN NOT EXISTS (
-            SELECT 1
-            FROM HCP_API_EXPIRED_SYSEMPNO
-            WHERE SYS_EMP_NO = #{sysEmpNo}
-              AND DAEMON_ENV = UPPER('${hcp.application.env}')
-        ) THEN
-        INTO HCP_API_EXPIRED_SYSEMPNO (
-            SYS_EMP_NO,
-            BATCH_STAT_CD,
-            DAEMON_ENV,
-            CREATED_AT,
-            UPDATED_AT
-        )
-        VALUES (
-            #{sysEmpNo},
-            'W',
-            UPPER('${hcp.application.env}'),
-            SYSDATE,
-            SYSDATE
-        )
-    </foreach>
-    SELECT 1 FROM DUAL
-</insert>
-
-<select id="getProcessTargetExpirySysEmpNos"
-        resultType="com.skhynix.hcp.arch.gateway.cronjob.dto.HcpApiExpiredSysEmpNo">
-    SELECT SYS_EMP_NO,
-           BATCH_STAT_CD
-    FROM HCP_API_EXPIRED_SYSEMPNO
-    WHERE DAEMON_ENV = UPPER('${hcp.application.env}')
-      AND BATCH_STAT_CD IN ('W', 'F')
-</select>
-
-<delete id="deleteIfSnapshot">
-    DELETE FROM HCP_${hcp.apistore.ifTable}
-</delete>
-
-<insert id="insertIfSnapshot">
-    INSERT INTO HCP_${hcp.apistore.ifTable} (
-        ACCOUNT,
-        ACCOUNT_STATUS,
-        COMPANY_CD,
-        REG_DTTM
-    )
-    SELECT ACCOUNT,
-           ACCOUNT_STATUS,
-           COMPANY_CD,
-           SYSTIMESTAMP
-    FROM ${hcp.apistore.ifTable}
-</insert>
-
-<update id="truncateIfSnapshot">
-    TRUNCATE TABLE HCP_${hcp.apistore.ifTable}
-</update>
