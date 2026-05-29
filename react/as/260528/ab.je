@@ -1,0 +1,135 @@
+export const MCP_CONFIG_SAMPLES = [
+  {
+    key: 'vscode',
+    label: 'VSCode',
+    getValue: ({ serviceName, url, gwHeaderName, keyPub }) => `name: ${serviceName}
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: ${serviceName}
+    type: streamable-http
+    url: ${url}
+    requestOptions:
+      headers:
+        ${gwHeaderName}: ${keyPub || ''}`,
+  },
+  {
+    key: 'continue',
+    label: 'Continue',
+    getValue: ({ serviceName, url, gwHeaderName, keyPub }) => `name: ${serviceName}
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: ${serviceName}
+    type: streamable-http
+    url: ${url}
+    requestOptions:
+      headers:
+        ${gwHeaderName}: ${keyPub || ''}`,
+  },
+];
+
+
+
+const mcpTableData = useMemo(
+  () =>
+    apiList.map((api) => {
+      const server =
+        process.env.VITE_APP_ENV === 'staging'
+          ? `${getStgGatewayUrl(serviceType)}${getGatewayPrefix(serviceType, svcId)}`
+          : `${api?.gwDomain}${getGatewayPrefix(serviceType, svcId)}`;
+
+      return {
+        ...api,
+        expandedArea: (
+          <McpConfigGuide
+            serviceName={serviceDetail?.svcNm}
+            url={`${ensureProtocol(server)}${api?.path || ''}`}
+            gwHeaderName={gwHeaderName}
+            keyPub={selectedKey?.keyPub}
+          />
+        ),
+      };
+    }),
+  [apiList, serviceType, svcId, serviceDetail?.svcNm, gwHeaderName, selectedKey?.keyPub],
+);
+
+import { useMemo, useState } from 'react';
+
+import Buttons from '@/components/Atoms/Buttons';
+import Division from '@/components/Atoms/Division';
+import FormRow from '@/components/Atoms/FormRow';
+import FormCol from '@/components/Atoms/FormCol';
+import CodeEditor from '@/components/Atoms/CodeEditor';
+import { MCP_CONFIG_SAMPLES } from '@/utils/mcpConfigSamples';
+
+const McpConfigGuide = ({
+  serviceName,
+  url,
+  gwHeaderName,
+  keyPub,
+}) => {
+  const [selectedSampleKey, setSelectedSampleKey] = useState(
+    MCP_CONFIG_SAMPLES[0]?.key,
+  );
+
+  const selectedSample = useMemo(
+    () =>
+      MCP_CONFIG_SAMPLES.find(
+        (sample) => sample.key === selectedSampleKey,
+      ),
+    [selectedSampleKey],
+  );
+
+  const configSample = useMemo(() => {
+    if (!selectedSample?.getValue) return '';
+
+    return selectedSample.getValue({
+      serviceName: serviceName || 'New MCP server',
+      url: url || '',
+      gwHeaderName: gwHeaderName || 'Authorization-HCP-GW',
+      keyPub: keyPub || '',
+    });
+  }, [selectedSample, serviceName, url, gwHeaderName, keyPub]);
+
+  return (
+    <>
+      <FormRow>
+        <FormCol span={4}>
+          <Division flex={true} flexFlow={'column'} gap={15}>
+            {MCP_CONFIG_SAMPLES.map((sample) => (
+              <Buttons.Activatable
+                key={sample.key}
+                active={sample.key === selectedSampleKey}
+                onClick={() => setSelectedSampleKey(sample.key)}
+              >
+                {sample.label}
+              </Buttons.Activatable>
+            ))}
+          </Division>
+        </FormCol>
+
+        <FormCol span={20}>
+          <CodeEditor
+            readOnly={true}
+            value={configSample}
+            language={'yaml'}
+            copyable={true}
+          />
+        </FormCol>
+      </FormRow>
+    </>
+  );
+};
+
+export default McpConfigGuide;
+
+
+expandedArea: (
+  <McpConfigGuide
+    serviceName={serviceDetail?.svcNm}
+    url={`${ensureProtocol(server)}${api?.path || ''}`}
+    gwHeaderName={gwHeaderName}
+    keyPub={selectedKey?.keyPub}
+  />
+),
