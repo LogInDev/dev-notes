@@ -310,17 +310,84 @@ const Detail = () => {
 
 // ------------------------------------------------------------------------------------------------
 //src/constants/listStateKeys.js
-export const LIST_STATE_KEYS = {
-  SERVICE_CATALOG: 'apiStore.list.serviceCatalog',
-  MY_SUBSCRIPTION: 'apiStore.list.mySubscription',
-  MY_SERVICE_MANAGEMENT: 'apiStore.list.myServiceManagement',
-};
-export const LIST_RESTORE_LOCATION_KEY = 'restoreListId';
+export const STORAGE_KEY_PREFIX = 'list_state_';
 
-// src/hooks/useRestorableListState.js
-import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { LIST_RESTORE_LOCATION_KEY } from '@/constants/listStateKeys';
+export const PREV_PATH_KEY = 'apiStore.prevPath';
+export const CURRENT_PATH_KEY = 'apiStore.currentPath';
+
+/**
+ * 목록별 아이디
+ */
+export const MAIN_LIST_ID = 'main';
+export const SUBSCRIBE_LIST_ID = 'subscribe';
+export const MANAGE_LIST_ID = 'manage';
+
+/**
+ * 목록별 라우트 설정
+ * 실제 프로젝트 경로에 맞게 listPath/detailPattern만 관리하면 됨
+ */
+export const LIST_ROUTE_CONFIG = {
+  [MAIN_LIST_ID]: {
+    listPath: '/api',
+    detailPattern: /\/api\/detail\/[^/]+$/,
+  },
+  [SUBSCRIBE_LIST_ID]: {
+    listPath: '/my/subscription',
+    detailPattern: /\/my\/subscription\/detail\/[^/]+$/,
+  },
+  [MANAGE_LIST_ID]: {
+    listPath: '/my/service',
+    detailPattern: /\/my\/service\/detail\/[^/]+$/,
+  },
+};
+
+//useRouterHistory.jsx
+import { useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
+import { CURRENT_PATH_KEY, PREV_PATH_KEY } from '@/constants/listStateKeys';
+
+const useRouteHistory = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    const nextPath = `${location.pathname}${location.search || ''}`;
+    const currentPath = sessionStorage.getItem(CURRENT_PATH_KEY);
+
+    if (currentPath !== nextPath) {
+      sessionStorage.setItem(PREV_PATH_KEY, currentPath || '');
+      sessionStorage.setItem(CURRENT_PATH_KEY, nextPath);
+    }
+  }, [location.pathname, location.search]);
+};
+
+export default useRouteHistory;
+
+import useRouteHistory from '@/hooks/useRouteHistory';
+
+const AppLayout = () => {
+  useRouteHistory();
+
+  return (
+    <>
+      <Header />
+      <Outlet />
+    </>
+  );
+};
+
+export default AppLayout;
+
+import { useState, useEffect } from 'react';
+import {
+  STORAGE_KEY_PREFIX,
+  PREV_PATH_KEY,
+  LIST_ROUTE_CONFIG,
+  MAIN_LIST_ID,
+  SUBSCRIBE_LIST_ID,
+  MANAGE_LIST_ID,
+} from '@/constants/listStateKeys';
+
+export { MAIN_LIST_ID, SUBSCRIBE_LIST_ID, MANAGE_LIST_ID };
 
 const safeParseJson = (value, fallback) => {
   try {
@@ -330,53 +397,43 @@ const safeParseJson = (value, fallback) => {
   }
 };
 
-const useRestorableListState = (listId, defaultState) => {
-  const location = useLocation();
-  const navigate = useNavigate();
+const isRestoreFromOwnDetail = (listId) => {
+  const prevPath = sessionStorage.getItem(PREV_PATH_KEY) || '';
+  const config = LIST_ROUTE_CONFIG[listId];
 
-  const shouldRestoreRef = useRef(
-    location.state?.[LIST_RESTORE_LOCATION_KEY] === listId,
-  );
+  if (!config) {
+    return false;
+  }
+
+  return config.detailPattern.test(prevPath);
+};
+
+const useListState = (listId, initialState) => {
+  const storageKey = STORAGE_KEY_PREFIX + listId;
 
   const [state, setState] = useState(() => {
-    if (!shouldRestoreRef.current) {
-      return defaultState;
+    const shouldRestore = isRestoreFromOwnDetail(listId);
+
+    if (!shouldRestore) {
+      sessionStorage.setItem(storageKey, JSON.stringify(initialState));
+      return initialState;
     }
 
-    const savedState = safeParseJson(sessionStorage.getItem(listId), null);
+    const saved = safeParseJson(sessionStorage.getItem(storageKey), null);
 
-    return savedState ? { ...defaultState, ...savedState } : defaultState;
+    return saved ? { ...initialState, ...saved } : initialState;
   });
 
   useEffect(() => {
-    sessionStorage.setItem(listId, JSON.stringify(state));
-  }, [listId, state]);
+    sessionStorage.setItem(storageKey, JSON.stringify(state));
+  }, [storageKey, state]);
 
-  useEffect(() => {
-    if (location.state?.[LIST_RESTORE_LOCATION_KEY] === listId) {
-      return;
-    }
-
-    navigate(`${location.pathname}${location.search}`, {
-      replace: true,
-      state: {
-        ...(location.state || {}),
-        [LIST_RESTORE_LOCATION_KEY]: listId,
-      },
-    });
-  }, [
-    listId,
-    location.pathname,
-    location.search,
-    location.state,
-    navigate,
-  ]);
-
-  return [state, setState, { shouldRestore: shouldRestoreRef.current }];
+  return [state, setState];
 };
 
-export default useRestorableListState;
+export default useListState;
 
+  
 // 내구독
 const [listFilters, setListFilters] = useRestorableListState(
   LIST_STATE_KEYS.MY_SUBSCRIPTION,
@@ -393,16 +450,33 @@ const [listFilters, setListFilters] = useRestorableListState(
   DEFAULT_MY_SERVICE_MANAGEMENT_FILTERS,
 );
 //상세
-markListRestoreTarget(LIST_STATE_KEYS.MY_SERVICE_MANAGEMENT);
 
-navigate(`${getRoutePath(basename, '/my/service/detail/' + id)}`);
+const handleNavigateToDetail = (id) => {
+  if (!id) return;
 
+  navigate(`${getRoutePath(basename, '/api/detail/' + id)}`);
+};
+
+import useListState, { MAIN_LIST_ID } from '@/hooks/useListState';
+
+const [listFilters, setListFilters] = useListState(
+  MAIN_LIST_ID,
+  DEFAULT_SERVICE_CATALOG_FILTERS,
+);
 // 서비스 카탈로그
-useRestorableListState(LIST_STATE_KEYS.SERVICE_CATALOG, DEFAULT_SERVICE_CATALOG_FILTERS)
-markListRestoreTarget(LIST_STATE_KEYS.SERVICE_CATALOG)
-// 내구독
-useRestorableListState(LIST_STATE_KEYS.MY_SUBSCRIPTION, DEFAULT_MY_SUBSCRIPTION_FILTERS)
-markListRestoreTarget(LIST_STATE_KEYS.MY_SUBSCRIPTION)
-//내서비스관리
-useRestorableListState(LIST_STATE_KEYS.MY_SERVICE_MANAGEMENT, DEFAULT_MY_SERVICE_MANAGEMENT_FILTERS)
-markListRestoreTarget(LIST_STATE_KEYS.MY_SERVICE_MANAGEMENT)
+추가:
+1. src/constants/listStateKeys.js
+2. src/hooks/useRouteHistory.js
+3. 공통 Layout에서 useRouteHistory() 호출
+
+수정:
+1. 기존 useListState.js 수정
+2. ApiList.jsx는 useListState 그대로 사용
+3. Total.jsx 상세 이동 함수는 mark 없이 기존 navigate만 사용
+
+삭제/미사용:
+1. useRestorableListState.js
+2. markListRestoreTarget
+3. navigate(path, { state })
+4. isServiceDetailPath
+5. NavigationTracker.jsx
