@@ -1276,3 +1276,73 @@ export default MySubscribe;
 //     pointer-events: none;
 //   }
 // `;
+
+// saga.js
+export const axiosGetMyAllSubscribeList = async ({
+  svcType,
+  subStatus,
+}) => {
+  const response = await axios.post(
+    `${process.env.VITE_REACT_APP_API_STORE_URL}/api/myPage/getMyAllApi`,
+    {},
+    {
+      params: {
+        svcType,
+        subStatus,
+        order: 'DESC',
+        sortBy: 'upd_dttm',
+      },
+    },
+  );
+
+  return response;
+};
+
+function* getMySubscribeListSaga(action) {
+  try {
+    const {
+      svcType = 'all',
+      subStatus = SUBSCRIBE_FILTER.SUB_NOR,
+    } = action?.payload || {};
+
+    const response = yield call(
+      axiosGetMyAllSubscribeList,
+      {
+        svcType,
+        subStatus,
+      },
+    );
+
+    const responseData =
+      response?.data?.response || {};
+
+    const serviceList = Array.isArray(
+      responseData?.svcList,
+    )
+      ? responseData.svcList
+      : [];
+
+    const total = Number(
+      responseData?.total ?? serviceList.length,
+    );
+
+    yield put(
+      fetchMySubscribeListSuccess({
+        list: serviceList,
+        total,
+      }),
+    );
+  } catch (error) {
+    yield put(fetchMySubscribeListFail(error));
+  }
+}
+
+// reducer.js
+case FETCH_MY_SUBSCRIBE_LIST_SUCCESS:
+  return produce(state, (draft) => {
+    draft.list.fetchMySubscribeListLoading = false;
+    draft.list.mySubscribeList =
+      action.payload?.list || [];
+    draft.list.total =
+      action.payload?.total || 0;
+  });
