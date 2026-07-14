@@ -1249,3 +1249,30 @@ const MySubscribe = () => {
 };
 
 export default MySubscribe;
+
+//내부에 prop 전달
+// const Outlined = ({
+//   disabled,
+//   children,
+//   ...props
+// }) => {
+//   return (
+//     <Button
+//       {...props}
+//       disabled={disabled}
+//     >
+//       {children}
+//     </Button>
+//   );
+// };
+
+// const Outlined = styled.button`
+//   &:disabled {
+//     color: #999;
+//     background-color: #f5f5f5;
+//     border-color: #d9d9d9;
+//     cursor: not-allowed;
+//     opacity: 0.6;
+//     pointer-events: none;
+//   }
+// `;
