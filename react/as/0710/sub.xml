@@ -1,0 +1,513 @@
+<select
+    id="getMyAllApi"
+    parameterType="java.util.HashMap"
+    resultType="CamelCaseMap">
+
+    /* HcpApiMyPageMapper.getMyAllApi : 나의 구독 API 목록 조회 */
+
+    WITH MY_KEY_IDS AS (
+        SELECT DISTINCT
+               HAK.KEY_ID,
+               HAK.KEY_NAME,
+               HAKA.AUTH_CD,
+               HAKA.PRJ_ID,
+               HAKA.AUTH_ID
+          FROM HCP_API_KEY HAK
+          JOIN HCP_API_KEY_AUTH HAKA
+            ON HAKA.KEY_ID = HAK.KEY_ID
+
+        <if test="keyId == null or keyId.size() == 0">
+          JOIN TABLE(HCP_GET_AUTH_PRJ(#{empNo})) PRJ
+            ON PRJ.PRJ_ID = HAKA.PRJ_ID
+        </if>
+
+         WHERE NOT (
+                   HAKA.AUTH_CD = 'PSN'
+               AND HAK.OWNER_ID != #{empNo}
+         )
+
+        <if test="keyId != null and keyId.size() > 0">
+           AND HAK.KEY_ID IN
+            <foreach
+                item="item"
+                collection="keyId"
+                open="("
+                separator=","
+                close=")">
+                #{item}
+            </foreach>
+        </if>
+    ),
+
+    STATUS_INFO AS (
+        /*
+         * 권한 요청 상태
+         *
+         * 목록 한 행 기준:
+         * SVC_ID + KEY_ID + REQ_STAT_CD
+         */
+        SELECT
+               R.SVC_ID,
+               R.KEY_ID,
+               'NONE' AS SUB_STAT_CD,
+               'AUTH_' || R.REQ_STAT_CD AS REQ_STAT_CD,
+
+               MAX(R.REG_USER_ID)
+                   KEEP (
+                       DENSE_RANK LAST
+                       ORDER BY
+                           R.UPD_DTTM,
+                           R.REG_USER_ID
+                   ) AS REG_USER_ID,
+
+               MAX(R.UPD_DTTM) AS UPD_DTTM
+
+          FROM HCP_API_SVC_REQ R
+
+         WHERE R.REQ_STAT_CD != 'NOR'
+
+         GROUP BY
+               R.SVC_ID,
+               R.KEY_ID,
+               R.REQ_STAT_CD
+
+        UNION ALL
+
+        /*
+         * 구독 상태
+         *
+         * 목록 한 행 기준:
+         * SVC_ID + KEY_ID + SUB_STAT_CD
+         */
+        SELECT
+               B.SVC_ID,
+               SUB.KEY_ID,
+               'SUB_' || SUB.SUB_STAT_CD AS SUB_STAT_CD,
+               'NONE' AS REQ_STAT_CD,
+
+               MAX(SUB.REG_USER_ID)
+                   KEEP (
+                       DENSE_RANK LAST
+                       ORDER BY
+                           SUB.UPD_DTTM,
+                           SUB.REG_USER_ID
+                   ) AS REG_USER_ID,
+
+               MAX(SUB.UPD_DTTM) AS UPD_DTTM
+
+          FROM HCP_API_SUB SUB
+          JOIN HCP_API_PUB P
+            ON P.PUB_ID = SUB.PUB_ID
+          JOIN HCP_API_BASE B
+            ON B.API_ID = P.API_ID
+
+         WHERE SUB.SUB_STAT_CD != 'CCL'
+
+         GROUP BY
+               B.SVC_ID,
+               SUB.KEY_ID,
+               SUB.SUB_STAT_CD
+    ),
+
+    /*
+     * 서비스별 구독 Key 수
+     */
+    SUB_COUNT_INFO AS (
+        SELECT
+               B.SVC_ID,
+               COUNT(DISTINCT SUB.KEY_ID) AS SUB_COUNT
+
+          FROM HCP_API_SUB SUB
+          JOIN HCP_API_PUB P
+            ON P.PUB_ID = SUB.PUB_ID
+          JOIN HCP_API_BASE B
+            ON B.API_ID = P.API_ID
+
+         WHERE SUB.SUB_STAT_CD != 'CCL'
+
+         GROUP BY B.SVC_ID
+    )
+
+    SELECT
+           S.SVC_ID,
+           S.SVC_NM,
+           S.SVC_TYPE,
+           S.SVC_MODEL,
+           S.SVC_DESC,
+
+           ST.UPD_DTTM,
+           ST.REG_USER_ID,
+
+           ST.SUB_STAT_CD,
+           ST.REQ_STAT_CD,
+
+           CASE
+               WHEN ST.SUB_STAT_CD != 'NONE'
+                   THEN ST.SUB_STAT_CD
+               WHEN ST.REQ_STAT_CD != 'NONE'
+                   THEN ST.REQ_STAT_CD
+               ELSE 'NONE'
+           END AS STAT_CD,
+
+           NVL(FU.NAME_KOR, '-') AS NAME_KOR,
+           FU.EMAIL,
+           FD.NAME_KOR AS DEPT_KOR,
+           FP.NAME_KOR AS POS_KOR,
+
+           ST.REG_USER_ID AS EMP_NO,
+
+           NVL(SCI.SUB_COUNT, 0) AS SUB_COUNT,
+
+           MKI.KEY_ID,
+           MKI.KEY_NAME,
+           MKI.AUTH_CD,
+           MKI.PRJ_ID,
+           MKI.AUTH_ID
+
+      FROM STATUS_INFO ST
+
+      JOIN MY_KEY_IDS MKI
+        ON MKI.KEY_ID = ST.KEY_ID
+
+      JOIN HCP_API_SVC S
+        ON S.SVC_ID = ST.SVC_ID
+       AND S.SVC_ENV = '${hcp.application.env}'
+
+      LEFT JOIN SUB_COUNT_INFO SCI
+        ON SCI.SVC_ID = ST.SVC_ID
+
+      LEFT JOIN FR_USER FU
+        ON FU.EMP_NO = ST.REG_USER_ID
+       AND FU.STATUS_CD = 'C'
+
+      LEFT JOIN FR_DEPT FD
+        ON FD.DEPT_ID = FU.DEPT_ID
+
+      LEFT JOIN FR_POSITION FP
+        ON FP.PSTN_ID = FU.PSTN_ID
+
+     WHERE S.SHOW_YN = 'Y'
+
+       AND (
+               S.DEL_YN = 'N'
+            OR (
+                   S.DEL_YN = 'Y'
+               AND S.RES_DTTM >= SYSDATE
+            )
+       )
+
+    <if test="svcType != null and svcType != ''">
+       AND S.SVC_TYPE = UPPER(#{svcType})
+    </if>
+
+    <if test="search != null and search != ''">
+       AND LOWER(S.SVC_NM)
+           LIKE '%' || LOWER(#{search}) || '%'
+    </if>
+
+    <if test="subStatus != null and subStatus != ''">
+       AND (
+              ST.SUB_STAT_CD = UPPER(#{subStatus})
+           OR ST.REQ_STAT_CD = UPPER(#{subStatus})
+       )
+    </if>
+
+     ORDER BY
+
+    <choose>
+        <when test="sortBy == 'sub_count'">
+            SUB_COUNT
+        </when>
+
+        <when test="sortBy == 'svc_nm'">
+            S.SVC_NM
+        </when>
+
+        <when test="sortBy == 'svc_type'">
+            S.SVC_TYPE
+        </when>
+
+        <when test="sortBy == 'key_name'">
+            MKI.KEY_NAME
+        </when>
+
+        <otherwise>
+            ST.UPD_DTTM
+        </otherwise>
+    </choose>
+
+    <choose>
+        <when test="order != null and order.toUpperCase() == 'ASC'">
+            ASC
+        </when>
+
+        <otherwise>
+            DESC
+        </otherwise>
+    </choose>
+
+</select>
+
+<select
+    id="selectMySubCount"
+    parameterType="java.util.HashMap"
+    resultType="CamelCaseMap">
+
+    /* HcpApiMyPageMapper.selectMySubCount :
+       나의 구독 상태별 서비스/Key 집계 */
+
+    WITH MY_KEY_IDS AS (
+        SELECT DISTINCT
+               HAK.KEY_ID
+
+          FROM HCP_API_KEY HAK
+          JOIN HCP_API_KEY_AUTH HAKA
+            ON HAKA.KEY_ID = HAK.KEY_ID
+
+        <if test="keyId == null or keyId.size() == 0">
+          JOIN TABLE(HCP_GET_AUTH_PRJ(#{empNo})) PRJ
+            ON PRJ.PRJ_ID = HAKA.PRJ_ID
+        </if>
+
+         WHERE NOT (
+                   HAKA.AUTH_CD = 'PSN'
+               AND HAK.OWNER_ID != #{empNo}
+         )
+
+        <if test="keyId != null and keyId.size() > 0">
+           AND HAK.KEY_ID IN
+            <foreach
+                item="item"
+                collection="keyId"
+                open="("
+                separator=","
+                close=")">
+                #{item}
+            </foreach>
+        </if>
+    ),
+
+    SUB_STATUS_INFO AS (
+        SELECT
+               S.SVC_ID,
+               S.SHOW_YN,
+               SUB.KEY_ID,
+               SUB.SUB_STAT_CD
+
+          FROM HCP_API_SVC S
+          JOIN HCP_API_BASE B
+            ON B.SVC_ID = S.SVC_ID
+          JOIN HCP_API_PUB P
+            ON P.API_ID = B.API_ID
+          JOIN HCP_API_SUB SUB
+            ON SUB.PUB_ID = P.PUB_ID
+          JOIN MY_KEY_IDS MKI
+            ON MKI.KEY_ID = SUB.KEY_ID
+
+         WHERE S.SVC_ENV = '${hcp.application.env}'
+
+           AND (
+                   S.DEL_YN = 'N'
+                OR (
+                       S.DEL_YN = 'Y'
+                   AND S.RES_DTTM >= SYSDATE
+                )
+           )
+
+           AND SUB.SUB_STAT_CD != 'CCL'
+
+        <if test="svcType != null and svcType != ''">
+           AND S.SVC_TYPE = UPPER(#{svcType})
+        </if>
+
+        /*
+         * 목록과 동일한 서비스 + Key + 상태 단위
+         */
+         GROUP BY
+               S.SVC_ID,
+               S.SHOW_YN,
+               SUB.KEY_ID,
+               SUB.SUB_STAT_CD
+    )
+
+    SELECT
+           /*
+            * 공개/비공개 포함 전체 구독 중
+            */
+           NVL(
+               SUM(
+                   CASE
+                       WHEN SUB_STAT_CD = 'NOR'
+                       THEN 1
+                       ELSE 0
+                   END
+               ),
+               0
+           ) AS SUB_CNT,
+
+           /*
+            * 구독 승인 대기
+            * getMyAllApi(subStatus = SUB_APR)와 같은 단위
+            */
+           NVL(
+               SUM(
+                   CASE
+                       WHEN SUB_STAT_CD = 'APR'
+                        AND SHOW_YN = 'Y'
+                       THEN 1
+                       ELSE 0
+                   END
+               ),
+               0
+           ) AS APR_CNT,
+
+           /*
+            * 공개 서비스 구독 중
+            */
+           NVL(
+               SUM(
+                   CASE
+                       WHEN SUB_STAT_CD = 'NOR'
+                        AND SHOW_YN = 'Y'
+                       THEN 1
+                       ELSE 0
+                   END
+               ),
+               0
+           ) AS SHOW_CNT,
+
+           /*
+            * 비공개 서비스 구독 중
+            */
+           NVL(
+               SUM(
+                   CASE
+                       WHEN SUB_STAT_CD = 'NOR'
+                        AND SHOW_YN = 'N'
+                       THEN 1
+                       ELSE 0
+                   END
+               ),
+               0
+           ) AS HID_CNT,
+
+           /*
+            * 현재 환경의 유효 서비스 전체 수
+            */
+           (
+               SELECT COUNT(1)
+
+                 FROM HCP_API_SVC ALL_SVC
+
+                WHERE ALL_SVC.SVC_ENV =
+                      '${hcp.application.env}'
+
+                  AND (
+                          ALL_SVC.DEL_YN = 'N'
+                       OR (
+                              ALL_SVC.DEL_YN = 'Y'
+                          AND ALL_SVC.RES_DTTM >= SYSDATE
+                       )
+                  )
+
+               <if test="svcType != null and svcType != ''">
+                  AND ALL_SVC.SVC_TYPE =
+                      UPPER(#{svcType})
+               </if>
+           ) AS ALL_CNT
+
+      FROM SUB_STATUS_INFO
+
+</select>
+
+<select
+    id="getMyReqCount"
+    parameterType="java.util.HashMap"
+    resultType="int">
+
+    /* HcpApiMyPageMapper.getMyReqCount :
+       나의 권한 요청 상태별 서비스/Key 건수 */
+
+    WITH MY_KEY_IDS AS (
+        SELECT DISTINCT
+               HAK.KEY_ID
+
+          FROM HCP_API_KEY HAK
+          JOIN HCP_API_KEY_AUTH HAKA
+            ON HAKA.KEY_ID = HAK.KEY_ID
+
+        <if test="keyId == null or keyId.size() == 0">
+          JOIN TABLE(HCP_GET_AUTH_PRJ(#{empNo})) PRJ
+            ON PRJ.PRJ_ID = HAKA.PRJ_ID
+        </if>
+
+         WHERE NOT (
+                   HAKA.AUTH_CD = 'PSN'
+               AND HAK.OWNER_ID != #{empNo}
+         )
+
+        <if test="keyId != null and keyId.size() > 0">
+           AND HAK.KEY_ID IN
+            <foreach
+                item="item"
+                collection="keyId"
+                open="("
+                separator=","
+                close=")">
+                #{item}
+            </foreach>
+        </if>
+    )
+
+    SELECT COUNT(1)
+
+      FROM (
+            SELECT
+                   R.SVC_ID,
+                   R.KEY_ID,
+                   R.REQ_STAT_CD
+
+              FROM HCP_API_SVC_REQ R
+
+              JOIN HCP_API_SVC S
+                ON S.SVC_ID = R.SVC_ID
+               AND S.SVC_ENV =
+                   '${hcp.application.env}'
+
+              JOIN MY_KEY_IDS MKI
+                ON MKI.KEY_ID = R.KEY_ID
+
+             WHERE S.SHOW_YN = 'Y'
+
+               AND (
+                       S.DEL_YN = 'N'
+                    OR (
+                           S.DEL_YN = 'Y'
+                       AND S.RES_DTTM >= SYSDATE
+                    )
+               )
+
+            <if test="svcType != null and svcType != ''">
+               AND S.SVC_TYPE = UPPER(#{svcType})
+            </if>
+
+            /*
+             * DB에는 APR, REJ 형태로 저장
+             * AUTH_APR 전체값을 직접 넘기면 안 됨
+             */
+            <if test="keyword != null and keyword != ''">
+               AND R.REQ_STAT_CD = UPPER(#{keyword})
+            </if>
+
+            <if test="search != null and search != ''">
+               AND LOWER(S.SVC_NM)
+                   LIKE '%' || LOWER(#{search}) || '%'
+            </if>
+
+             GROUP BY
+                   R.SVC_ID,
+                   R.KEY_ID,
+                   R.REQ_STAT_CD
+      ) REQUEST_STATUS
+
+</select>
